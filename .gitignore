@@ -1,0 +1,11 @@
+# Build artifacts
+*.xcodeproj
+.build/
+build/
+
+# macOS
+.DS_Store
+
+# Temporary files
+*.tmp
+*.log
