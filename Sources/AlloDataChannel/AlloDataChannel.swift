@@ -10,7 +10,7 @@ import datachannel
 
 public class AlloWebRTCPeer
 {
-    private let peer: OpaquePointer
+    //private let peer: OpaquePointer
     
     public struct Error : Swift.Error
     {
@@ -20,28 +20,29 @@ public class AlloWebRTCPeer
     }
     
     public init?() {
-        let observers = AlloWebRTCPeerObservers()
-        guard let peer = awebrtc_peer_create(true, false, observers) else {
-            return nil
-        }
-        self.peer = peer
-        self.observers = observers
+        rtcInitLogger(RTC_LOG_VERBOSE, nil)
+        //let observers = AlloWebRTCPeerObservers()
+        //guard let peer = awebrtc_peer_create(true, false, observers) else {
+        //    return nil
+        //}
+        //self.peer = peer
+        //self.observers = observers
     }
     
     deinit {
-        awebrtc_peer_destroy(peer)
+        //awebrtc_peer_destroy(peer)
     }
     
-    private var observers: AlloWebRTCPeerObservers
+    //private var observers: AlloWebRTCPeerObservers
     
     public func close()
     {
-        awebrtc_peer_close(peer)
+        //awebrtc_peer_close(peer)
     }
     
-    public func createOffer(constrainedBy constraints: AlloWebRTCOfferAnswerConstraints) async throws -> String
+    public func createOffer(constrainedBy constraints: String) async throws -> String
     {
-        try await withCheckedThrowingContinuation
+        /*try await withCheckedThrowingContinuation
         { cont in
             awebrtc_peer_create_offer(peer, constraints) { error, sdp in
                 if let error = error {
@@ -50,7 +51,8 @@ public class AlloWebRTCPeer
                     //cont.resume(returning: String(cString: sdp.c_str()))
                 }
             }
-        }
+        }*/
+        return ""
     }
     
     public func createAnswer(for offerSdp: String, constrainedBy constraints: [String:String]? = nil) -> String?
@@ -76,12 +78,13 @@ public class AlloWebRTCPeer
     
     public func send(data: Data, on channel: String)
     {
-        data.withUnsafeBytes { bytes in
+        /*data.withUnsafeBytes { bytes in
             awebrtc_peer_send_data(peer, channel, bytes.baseAddress, data.count)
-        }
+        }*/
     }
     
     public func forwardStream(from otherPeer: AlloWebRTCPeer, streamId: String) -> Bool {
-        return awebrtc_peer_forward_stream(otherPeer.peer, peer, streamId) == 1
+        //return awebrtc_peer_forward_stream(otherPeer.peer, peer, streamId) == 1
+        return false
     }
 }

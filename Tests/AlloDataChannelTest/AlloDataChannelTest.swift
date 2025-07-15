@@ -12,7 +12,7 @@
      func testExample() async throws
      {
         let peer = AlloWebRTCPeer()
-        let constraints = AlloWebRTCOfferAnswerConstraints()
+        let constraints = ""
         let offer = try await peer?.createOffer(constrainedBy: constraints)
         print("Offer: \(offer ?? "<nil>")")
      }
