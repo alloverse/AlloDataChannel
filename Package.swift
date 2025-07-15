@@ -13,21 +13,21 @@ let package = Package(
     targets: [
         // Binary artefacts ---------------------------------------------------
         .binaryTarget(
-            name: "libdatachannel",
-            path: "Binaries/libdatachannel.xcframework"
+            name: "datachannel",
+            path: "Binaries/datachannel.xcframework"
         ),
         
         // Swift façade ------------------------------------
         .target(
             name: "AlloDataChannel",
-            dependencies: ["libdatachannel"],
-            path: "Sources/AlloWebRTC",
+            dependencies: ["datachannel"],
+            path: "Sources/AlloDataChannel",
         ),
         
         .testTarget(
             name: "AlloDataChannelTest",
             dependencies: ["AlloDataChannel"],
-            path: "Tests/AlloDataChannel",
+            path: "Tests/AlloDataChannelTest",
         )
     ],
 )

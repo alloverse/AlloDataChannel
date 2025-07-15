@@ -8,7 +8,7 @@ SRC_DIR=${SRC_DIR:-libdatachannel}
 MACOS_DEPLOY_TARGET=13.0
 LINUX_IMAGE=${LINUX_IMAGE:-debian:bookworm}   # any recent distro works
 OUTPUT_DIR=Binaries
-XC_NAME=libdatachannel.xcframework
+XC_NAME=datachannel.xcframework
 ########################################
 
 # 1. Sanity checks
@@ -62,33 +62,30 @@ docker run --rm -t \
 # 5. Assemble XCFramework (macOS slice)
 ########################################
 echo
-echo "📦🖥️  Assembling XCFramework"
+echo "📦🖥️  Assembling XCFramework..."
 
 rm -rf "$OUTPUT_DIR/$XC_NAME"
 mkdir -p "$OUTPUT_DIR"
+
+cp datachannel.modulemap "$SRC_DIR/include/module.modulemap"
 
 xcodebuild -create-xcframework \
   -library "$MAC_BUILD/libdatachannel.a" \
   -headers "$SRC_DIR/include" \
   -output "$OUTPUT_DIR/$XC_NAME"
 
+rm "$SRC_DIR/include/module.modulemap"
+
 ########################################
 # 6. Stash Linux artefacts alongside
 ########################################
 echo
-echo "📦👾 Assembling artifact bundle"
+echo "📦👾 Packing Linux library..."
 
-ARTIFACTBUNDLE="$OUTPUT_DIR/libdatachannel.artifactbundle"
-mkdir -p "$ARTIFACTBUNDLE/include"
-cp "$LINUX_BUILD/libdatachannel.a" "$ARTIFACTBUNDLE/libdatachannel.a"
-cp -R "$SRC_DIR/include/" "$ARTIFACTBUNDLE/include/"
-cat > "$ARTIFACTBUNDLE/info.json" <<JSON
-{
-"schemaVersion": "1.0",
-"artifacts": {
-"libdatachannel": { "type": "static-library" }
-}
-}
-JSON
+mkdir -p "$OUTPUT_DIR/$XC_NAME/linux-x86_64"
+cp "$LINUX_BUILD/libdatachannel.a" \
+   "$OUTPUT_DIR/$XC_NAME/linux-x86_64/libdatachannel-x86_64.a"
+rsync -a "$SRC_DIR/include/" \
+   "$OUTPUT_DIR/$XC_NAME/linux-x86_64/Headers/"
 
 echo "✅  Done"

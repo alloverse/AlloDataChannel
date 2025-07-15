@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import libdatachannel
+import datachannel
 
 public class AlloWebRTCPeer
 {
