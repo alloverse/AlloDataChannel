@@ -59,39 +59,35 @@ docker run --rm -t \
   "
 
 ########################################
-# 5. Assemble artifact bundle
+# 5. Assemble XCFramework (macOS slice)
 ########################################
 echo
-echo "📦 Assembling artifact bundle"
+echo "📦🖥️  Assembling XCFramework"
+
+rm -rf "$OUTPUT_DIR/$XC_NAME"
+mkdir -p "$OUTPUT_DIR"
+
+xcodebuild -create-xcframework \
+  -library "$MAC_BUILD/libdatachannel.a" \
+  -headers "$SRC_DIR/include" \
+  -output "$OUTPUT_DIR/$XC_NAME"
+
+########################################
+# 6. Stash Linux artefacts alongside
+########################################
+echo
+echo "📦👾 Assembling artifact bundle"
 
 ARTIFACTBUNDLE="$OUTPUT_DIR/libdatachannel.artifactbundle"
 mkdir -p "$ARTIFACTBUNDLE/include"
-cp libdatachannel.modulemap "$ARTIFACTBUNDLE/"
-cp "$LINUX_BUILD/libdatachannel.a" "$ARTIFACTBUNDLE/libdatachannel-linux-x64.a"
-cp "$MAC_BUILD/libdatachannel.a" "$ARTIFACTBUNDLE/libdatachannel-mac-arm64.a"
+cp "$LINUX_BUILD/libdatachannel.a" "$ARTIFACTBUNDLE/libdatachannel.a"
 cp -R "$SRC_DIR/include/" "$ARTIFACTBUNDLE/include/"
 cat > "$ARTIFACTBUNDLE/info.json" <<JSON
 {
-	"schemaVersion": "1.0",
-	"artifacts": {
-		"libdatachannel": { 
-			"type": "staticLibrary",
-			"variants": [
-				{
-					"path": "libdatachannel-linux-x64.a",
-					"headerPaths": ["include/"],
-					"moduleMapPath": "libdatachannel.modulemap",
-					"supportedTriples": ["x86_64-unknown-linux-gnu"]
-				},
-				{
-					"path": "libdatachannel-mac-arm64.a",
-					"headerPaths": ["include/"],
-					"moduleMapPath": "libdatachannel.modulemap",
-					"supportedTriples": ["arm64-apple-macosx"]
-				}
-			]
-		}
-	}
+"schemaVersion": "1.0",
+"artifacts": {
+"libdatachannel": { "type": "static-library" }
+}
 }
 JSON
 

@@ -14,7 +14,7 @@ let package = Package(
         // Binary artefacts ---------------------------------------------------
         .binaryTarget(
             name: "libdatachannel",
-            path: "Binaries/libdatachannel.artifactbundle"
+            path: "Binaries/libdatachannel.xcframework"
         ),
         
         // Swift façade ------------------------------------
