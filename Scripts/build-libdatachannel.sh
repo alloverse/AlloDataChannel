@@ -34,7 +34,15 @@ cmake -S "$SRC_DIR" -B "$MAC_BUILD" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_DEPLOY_TARGET \
   -DCMAKE_BUILD_TYPE=Release \
   -DBUILD_SHARED_LIBS=OFF \
-  -DUSE_GNUTLS=0 -DUSE_NICE=0
+  -DUSE_GNUTLS=0 -DUSE_MBEDTLS=0 -DUSE_NICE=0
+
+# mash in its deps
+libtool -static \
+  -o $MAC_BUILD/libdatachannel_full.a \
+     $MAC_BUILD/libdatachannel.a \
+     $MAC_BUILD/deps/libjuice/libjuice.a \
+     $MAC_BUILD/deps/libsrtp/libsrtp2.a \
+     $MAC_BUILD/deps/usrsctp/usrsctplib/libusrsctp.a
 
 (cd $MAC_BUILD && make -j4 )
 
@@ -70,7 +78,7 @@ mkdir -p "$OUTPUT_DIR"
 cp datachannel.modulemap "$SRC_DIR/include/module.modulemap"
 
 xcodebuild -create-xcframework \
-  -library "$MAC_BUILD/libdatachannel.a" \
+  -library "$MAC_BUILD/libdatachannel_full.a" \
   -headers "$SRC_DIR/include" \
   -output "$OUTPUT_DIR/$XC_NAME"
 
