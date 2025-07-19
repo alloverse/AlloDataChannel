@@ -149,8 +149,6 @@ public class AlloWebRTCPeer: ObservableObject
     // MARK: - API: Setup and teardown
     public init() throws
     {
-        //rtcInitLogger(RTC_LOG_VERBOSE, nil)
-        
         var config = rtcConfiguration()
         config.disableAutoNegotiation = true
         config.forceMediaTransport = true
@@ -167,6 +165,11 @@ public class AlloWebRTCPeer: ObservableObject
     public func close()
     {
         rtcClosePeerConnection(peerId)
+    }
+    
+    static public func enableLogging(at level: LogLevel)
+    {
+        rtcInitLogger(rtcLogLevel(level.rawValue), nil)
     }
     
     // MARK: - Signalling
