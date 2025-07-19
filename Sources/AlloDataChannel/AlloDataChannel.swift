@@ -132,6 +132,16 @@ public class AlloWebRTCPeer: ObservableObject
         public let candidate: String
         public let mid: String
     }
+    
+    // MARK: - External state
+    @Published public var state: State = .new
+    @Published public var signalingState: SignalingState = .stable
+    @Published public var iceState: IceState = .new
+    @Published public var gatheringState: GatheringState = .new
+    
+    @Published public var localDescription: Description? = nil
+    @Published public var candidates: [ICECandidate] = []
+
 
     // MARK: - Internal state
     private let peerId: Int32
@@ -147,23 +157,13 @@ public class AlloWebRTCPeer: ObservableObject
         
         peerId = try Error.orValue(rtcCreatePeerConnection(&config))
         
-        rtcSetUserPointer(peerId, Unmanaged.passUnretained(self).toOpaque())
-        
         try setupCallbacks()
     }
     
     deinit {
         rtcDeletePeerConnection(peerId)
     }
-    
-    @Published var state: State = .new
-    @Published var signalingState: SignalingState = .stable
-    @Published var iceState: IceState = .new
-    @Published var gatheringState: GatheringState = .new
-    
-    @Published var localDescription: Description? = nil
-    @Published var candidates: [ICECandidate] = []
-    
+        
     public func close()
     {
         rtcClosePeerConnection(peerId)
@@ -214,19 +214,20 @@ public class AlloWebRTCPeer: ObservableObject
     {
         weak var peer: AlloWebRTCPeer?
         let id: Int32
-        internal init(peer: AlloWebRTCPeer? = nil, id: Int32) {
+        internal init(peer: AlloWebRTCPeer? = nil, id: Int32)
+        {
             self.peer = peer
             self.id = id
             
-//            RTC_C_EXPORT int rtcSetOpenCallback(int id, rtcOpenCallbackFunc cb);
-//            RTC_C_EXPORT int rtcSetClosedCallback(int id, rtcClosedCallbackFunc cb);
-//            RTC_C_EXPORT int rtcSetErrorCallback(int id, rtcErrorCallbackFunc cb);
-//            RTC_C_EXPORT int rtcSetMessageCallback(int id, rtcMessageCallbackFunc cb);
-
+            try! setupCallbacks()
         }
         deinit {
             rtcDelete(id)
         }
+        
+        @Published public var open: Bool = false
+        @Published public var lastError: String? = nil
+        @Published public var lastMessage: Data? = nil
         
         public func send(data: Data) throws
         {
@@ -238,6 +239,30 @@ public class AlloWebRTCPeer: ObservableObject
         public func close()
         {
             rtcClose(id)
+        }
+        
+        private func setupCallbacks() throws
+        {
+            rtcSetUserPointer(id, Unmanaged.passUnretained(self).toOpaque())
+
+            let _ = try Error.orValue(rtcSetOpenCallback(id) { _, ptr  in
+                let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
+                this.open = true
+            })
+            let _ = try Error.orValue(rtcSetClosedCallback(id) { _, ptr  in
+                let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
+                this.open = false
+            })
+            let _ = try Error.orValue(rtcSetErrorCallback(id) { _, cerror, ptr  in
+                let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
+                let error = String(cString: cerror!)
+                this.lastError = error
+            })
+            let _ = try Error.orValue(rtcSetMessageCallback(id) { _, cdata, size, ptr  in
+                let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
+                let data = Data(bytes: cdata!, count: Int(size))
+                this.lastMessage = data
+            })
         }
     }
     
@@ -268,6 +293,8 @@ public class AlloWebRTCPeer: ObservableObject
     // MARK: - Internals
     private func setupCallbacks() throws
     {
+        rtcSetUserPointer(peerId, Unmanaged.passUnretained(self).toOpaque())
+        
         let _ = try Error.orValue(rtcSetLocalDescriptionCallback(peerId) { _, sdp, type, ptr  in
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
             let sdp = String(cString: sdp!)
@@ -279,27 +306,22 @@ public class AlloWebRTCPeer: ObservableObject
             let candidate = String(cString: candidate!)
             let mid = String(cString: mid!)
             this.candidates.append(ICECandidate(candidate: candidate, mid: mid))
-            print(">> New local candidate: \(candidate) // \(mid)")
         })
         let _ = try Error.orValue(rtcSetStateChangeCallback(peerId) { _, state, ptr  in
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
             this.state = State(rawValue: state.rawValue)!
-            print(">> New RTC state: \(this.state)")
         })
         let _ = try Error.orValue(rtcSetIceStateChangeCallback(peerId) { _, state, ptr  in
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
             this.iceState = IceState(rawValue: state.rawValue)!
-            print(">> New ICE state: \(this.iceState)")
         })
         let _ = try Error.orValue(rtcSetGatheringStateChangeCallback(peerId) { _, state, ptr  in
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
             this.gatheringState = GatheringState(rawValue: state.rawValue)!
-            print(">> New gathering state: \(this.gatheringState)")
         })
         let _ = try Error.orValue(rtcSetSignalingStateChangeCallback(peerId) { _, state, ptr  in
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
             this.signalingState = SignalingState(rawValue: state.rawValue)!
-            print(">> New signaling state: \(this.signalingState) ")
         })
     }
 }

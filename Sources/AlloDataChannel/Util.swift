@@ -35,3 +35,29 @@ func withCStrings<R>(
 
     return try recurse(0, [])
 }
+
+extension Published.Publisher
+{
+    @inlinable
+    public func debug(
+        _ prefix: String = "",
+        to output: @escaping (String) -> Void = { Swift.print($0) }
+    ) -> Publishers.HandleEvents<Self>
+    {
+        handleEvents(receiveOutput: { value in
+            output("\(prefix) = \(value)")
+        })
+    }
+
+    @inlinable
+    public func debugSink(
+        _ prefix: String = "",
+        in bag: inout Set<AnyCancellable>,
+        to output: @escaping (String) -> Void = { Swift.print($0) }
+    )
+    {
+        self.debug(prefix, to: output)
+            .sink { _ in }
+            .store(in: &bag)
+    }
+}
