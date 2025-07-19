@@ -131,6 +131,11 @@ public class AlloWebRTCPeer: ObservableObject
     {
         public let candidate: String
         public let mid: String
+        public init(candidate: String, mid: String)
+        {
+            self.candidate = candidate
+            self.mid = mid
+        }
     }
     
     // MARK: - External state
@@ -147,15 +152,15 @@ public class AlloWebRTCPeer: ObservableObject
     private let peerId: Int32
     
     // MARK: - API: Setup and teardown
-    public init() throws
+    public init()
     {
         var config = rtcConfiguration()
         config.disableAutoNegotiation = true
         config.forceMediaTransport = true
         
-        peerId = try Error.orValue(rtcCreatePeerConnection(&config))
+        peerId = try! Error.orValue(rtcCreatePeerConnection(&config))
         
-        try setupCallbacks()
+        try! setupCallbacks()
     }
     
     deinit {
