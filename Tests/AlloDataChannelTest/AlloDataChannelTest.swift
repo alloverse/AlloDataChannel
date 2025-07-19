@@ -35,8 +35,8 @@ where Output: Equatable
  class AlloDataChannelTests: XCTestCase {
      func testCreatingOffer() async throws
      {
-        let peer1 = try AlloWebRTCPeer()
-        let peer2 = try AlloWebRTCPeer()
+        let peer1 = AlloWebRTCPeer()
+        let peer2 = AlloWebRTCPeer()
         
         let p1chan = try peer1.createDataChannel(label: "test", streamId: 1, negotiated: true)
         let p2chan = try peer2.createDataChannel(label: "test", streamId: 1, negotiated: true)
