@@ -7,10 +7,11 @@
 
 import Foundation
 import datachannel
+import Combine
 
-public class AlloWebRTCPeer
+public class AlloWebRTCPeer: ObservableObject
 {
-    // MARK: Types
+    // MARK: - Types
     public enum Error : Int32, Swift.Error
     {
         case invalid = -1
@@ -30,7 +31,7 @@ public class AlloWebRTCPeer
         }
     }
     
-    enum State: UInt32
+    public enum State: UInt32
     {
         case new = 0
         case connecting = 1
@@ -40,7 +41,7 @@ public class AlloWebRTCPeer
         case closed = 5
     }
 
-    enum IceState: UInt32
+    public enum IceState: UInt32
     {
         case new = 0
         case checking = 1
@@ -51,14 +52,14 @@ public class AlloWebRTCPeer
         case closed = 6
     }
 
-    enum GatheringState: UInt32
+    public enum GatheringState: UInt32
     {
         case new = 0
         case inProgress = 1
         case complete = 2
     }
 
-    enum SignalingState: UInt32
+    public enum SignalingState: UInt32
     {
         case stable = 0
         case haveLocalOffer = 1
@@ -67,7 +68,7 @@ public class AlloWebRTCPeer
         case haveRemotePRAnswer = 4
     }
 
-    enum LogLevel: UInt32
+    public enum LogLevel: UInt32
     {
         case none = 0
         case fatal = 1
@@ -78,14 +79,14 @@ public class AlloWebRTCPeer
         case verbose = 6
     }
 
-    enum CertificateType: UInt32
+    public enum CertificateType: UInt32
     {
         case standard = 0 // ECDSA
         case ECDSA = 1
         case RSA = 2
     }
 
-    enum Codec: UInt32
+    public enum Codec: UInt32
     {
         // video
         case H264 = 0
@@ -102,7 +103,7 @@ public class AlloWebRTCPeer
         case G722 = 132
     }
 
-    enum Direction: UInt32
+    public enum Direction: UInt32
     {
         case unknown = 0
         case sendonly = 1
@@ -110,14 +111,35 @@ public class AlloWebRTCPeer
         case sendrecv = 3
         case inactive = 4
     }
+    
+    public struct Description
+    {
+        public enum DescriptionType: String
+        {
+            case unspecified = "unspec"
+            case offer = "offer"
+            case answer = "answer"
+            case PRAnswer = "pranswer"
+            case rollback = "rollback"
+        }
+        
+        public let type: DescriptionType
+        public let sdp: String
+    }
+    
+    public struct ICECandidate
+    {
+        public let candidate: String
+        public let mid: String
+    }
 
-    // MARK: Internal state
+    // MARK: - Internal state
     private let peerId: Int32
     
-    // MARK: Public API
+    // MARK: - API: Setup and teardown
     public init() throws
     {
-        //rtcInitLogger(RTC_LOG_INFO, nil)
+        //rtcInitLogger(RTC_LOG_VERBOSE, nil)
         
         var config = rtcConfiguration()
         config.disableAutoNegotiation = true
@@ -134,82 +156,150 @@ public class AlloWebRTCPeer
         rtcDeletePeerConnection(peerId)
     }
     
-    private func setupCallbacks() throws
-    {
-        //let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
-        let _ = try Error.orValue(rtcSetLocalDescriptionCallback(peerId) { _, sdp, type, _  in
-            let sdp = String(cString: sdp!)
-            let type = String(cString: type!)
-            print(">> Local description (type \(type): \(sdp)")
-        })
-        let _ = try Error.orValue(rtcSetLocalCandidateCallback(peerId) { _, candidate, mid, _  in
-            let candidate = String(cString: candidate!)
-            let mid = String(cString: mid!)
-            print(">> New local candidate: \(candidate) // \(mid)")
-        })
-        let _ = try Error.orValue(rtcSetStateChangeCallback(peerId) { _, state, _  in
-            let state = State(rawValue: state.rawValue)!
-            print(">> New RTC state: \(state)")
-        })
-        let _ = try Error.orValue(rtcSetIceStateChangeCallback(peerId) { _, state, _  in
-            let state = IceState(rawValue: state.rawValue)!
-            print(">> New ICE state: \(state)")
-        })
-        let _ = try Error.orValue(rtcSetGatheringStateChangeCallback(peerId) { _, state, _  in
-            let state = GatheringState(rawValue: state.rawValue)!
-            print(">> New gathering state: \(state)")
-        })
-        let _ = try Error.orValue(rtcSetSignalingStateChangeCallback(peerId) { _, state, _  in
-            let state = SignalingState(rawValue: state.rawValue)!
-            print(">> New signaling state: \(state) ")
-        })
-    }
+    @Published var state: State = .new
+    @Published var signalingState: SignalingState = .stable
+    @Published var iceState: IceState = .new
+    @Published var gatheringState: GatheringState = .new
+    
+    @Published var localDescription: Description? = nil
+    @Published var candidates: [ICECandidate] = []
     
     public func close()
     {
         rtcClosePeerConnection(peerId)
     }
     
-    public func createOffer() async throws -> String
+    // MARK: - Signalling
+    
+    public func createOffer() throws -> String
     {
         var size: Int32 = 0
-        size = try Error.orValue(rtcCreateOffer(peerId, nil, size))
+        size = try Error.orValue(rtcCreateOffer(peerId, nil, size)) + 1024
         return try withUnsafeTemporaryAllocation(of: CChar.self, capacity: Int(size)) {
             let _ = try Error.orValue(rtcCreateOffer(peerId, $0.baseAddress, size))
             return String(cString: $0.baseAddress!)
         }
     }
     
-    public func createAnswer(for offerSdp: String, constrainedBy constraints: [String:String]? = nil) -> String?
+    public func createAnswer() throws -> String
     {
-        // TODO: implement
-        return ""
+        var size: Int32 = 0
+        size = try Error.orValue(rtcCreateAnswer(peerId, nil, size)) + 1024
+        return try withUnsafeTemporaryAllocation(of: CChar.self, capacity: Int(size)) {
+            let _ = try Error.orValue(rtcCreateAnswer(peerId, $0.baseAddress, size))
+            return String(cString: $0.baseAddress!)
+        }
     }
     
-    public func createDataChannel(label: String, reliable: Bool = true)
+    /// When local state is configured and you're ready to send offer/answer, lock it in with this method.
+    public func lockLocalDescription(type: Description.DescriptionType) throws
     {
-        // TODO: implement
+        let _ = try Error.orValue(
+            type.rawValue.utf8CString.withUnsafeBufferPointer() {
+                return rtcSetLocalDescription(peerId, $0.baseAddress)
+            }
+        )
     }
     
-    public func set(local description: String, isOffer: Bool) async throws
+    public func set(remote description: String, type: Description.DescriptionType) throws
     {
-    
+        let _ = try Error.orValue(withCStrings([description, type.rawValue]) { vals in
+            return rtcSetRemoteDescription(peerId, vals[0], vals[1])}
+        )
     }
     
-    public func set(remote description: String, isOffer: Bool) async throws
-    {
+    // MARK: - Data channels
     
+    public class Channel
+    {
+        weak var peer: AlloWebRTCPeer?
+        let id: Int32
+        internal init(peer: AlloWebRTCPeer? = nil, id: Int32) {
+            self.peer = peer
+            self.id = id
+            
+//            RTC_C_EXPORT int rtcSetOpenCallback(int id, rtcOpenCallbackFunc cb);
+//            RTC_C_EXPORT int rtcSetClosedCallback(int id, rtcClosedCallbackFunc cb);
+//            RTC_C_EXPORT int rtcSetErrorCallback(int id, rtcErrorCallbackFunc cb);
+//            RTC_C_EXPORT int rtcSetMessageCallback(int id, rtcMessageCallbackFunc cb);
+
+        }
+        deinit {
+            rtcDelete(id)
+        }
+        
+        public func send(data: Data) throws
+        {
+            let _ = try Error.orValue(data.withUnsafeBytes { ptr in
+                return rtcSendMessage(id, ptr.bindMemory(to: CChar.self).baseAddress!, Int32(data.count))
+            })
+        }
+        
+        public func close()
+        {
+            rtcClose(id)
+        }
     }
     
-    public func send(data: Data, on channel: String)
+    public func createDataChannel(label: String, reliable: Bool = true, streamId: UInt16? = nil, negotiated: Bool = false) throws -> Channel
     {
-        /*data.withUnsafeBytes { bytes in
-            awebrtc_peer_send_data(peer, channel, bytes.baseAddress, data.count)
-        }*/
+        let dataChannelId = try Error.orValue(withCStrings([label]) { vals in
+            var initData = rtcDataChannelInit(
+                reliability:
+                    rtcReliability(unordered: !reliable, unreliable: !reliable, maxPacketLifeTime: 0, maxRetransmits: 0),
+                protocol: nil,
+                negotiated: negotiated,
+                manualStream: streamId != nil,
+                stream: streamId ?? 0
+            )
+            return rtcCreateDataChannelEx(peerId, vals[0], &initData)
+        })
+        
+        return Channel(peer: self, id: dataChannelId)
     }
+    
+    // MARK: - Media streams
     
     public func forwardStream(from otherPeer: AlloWebRTCPeer, streamId: String) -> Bool {
         //return awebrtc_peer_forward_stream(otherPeer.peer, peer, streamId) == 1
         return false
+    }
+    
+    // MARK: - Internals
+    private func setupCallbacks() throws
+    {
+        let _ = try Error.orValue(rtcSetLocalDescriptionCallback(peerId) { _, sdp, type, ptr  in
+            let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
+            let sdp = String(cString: sdp!)
+            let type = Description.DescriptionType(rawValue: String(cString: type!))!
+            this.localDescription = Description(type: type, sdp: sdp)
+        })
+        let _ = try Error.orValue(rtcSetLocalCandidateCallback(peerId) { _, candidate, mid, ptr  in
+            let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
+            let candidate = String(cString: candidate!)
+            let mid = String(cString: mid!)
+            this.candidates.append(ICECandidate(candidate: candidate, mid: mid))
+            print(">> New local candidate: \(candidate) // \(mid)")
+        })
+        let _ = try Error.orValue(rtcSetStateChangeCallback(peerId) { _, state, ptr  in
+            let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
+            this.state = State(rawValue: state.rawValue)!
+            print(">> New RTC state: \(this.state)")
+        })
+        let _ = try Error.orValue(rtcSetIceStateChangeCallback(peerId) { _, state, ptr  in
+            let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
+            this.iceState = IceState(rawValue: state.rawValue)!
+            print(">> New ICE state: \(this.iceState)")
+        })
+        let _ = try Error.orValue(rtcSetGatheringStateChangeCallback(peerId) { _, state, ptr  in
+            let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
+            this.gatheringState = GatheringState(rawValue: state.rawValue)!
+            print(">> New gathering state: \(this.gatheringState)")
+        })
+        let _ = try Error.orValue(rtcSetSignalingStateChangeCallback(peerId) { _, state, ptr  in
+            let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
+            this.signalingState = SignalingState(rawValue: state.rawValue)!
+            print(">> New signaling state: \(this.signalingState) ")
+        })
     }
 }
