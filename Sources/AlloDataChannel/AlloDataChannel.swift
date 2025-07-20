@@ -216,6 +216,13 @@ public class AlloWebRTCPeer: ObservableObject
         )
     }
     
+    public func add(remote candidate: ICECandidate) throws
+    {
+        let _ = try Error.orValue(withCStrings([candidate.candidate, candidate.mid]) { vals in
+            return rtcAddRemoteCandidate(peerId, vals[0], vals[1])}
+        )
+    }
+    
     // MARK: - Data channels
     
     public class Channel
