@@ -29,22 +29,19 @@ mkdir -p build
 echo
 echo "🔨🖥️  Building Mac slice"
 MAC_BUILD=build/macos
-cmake -S "$SRC_DIR" -B "$MAC_BUILD" \
+
+cmake -B "$MAC_BUILD" \
   -DCMAKE_OSX_ARCHITECTURES=arm64 \
   -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_DEPLOY_TARGET \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_SHARED_LIBS=OFF \
-  -DUSE_GNUTLS=0 -DUSE_MBEDTLS=0 -DUSE_NICE=0
-
-# mash in its deps
-libtool -static \
-  -o $MAC_BUILD/libdatachannel_full.a \
-     $MAC_BUILD/libdatachannel.a \
-     $MAC_BUILD/deps/libjuice/libjuice.a \
-     $MAC_BUILD/deps/libsrtp/libsrtp2.a \
-     $MAC_BUILD/deps/usrsctp/usrsctplib/libusrsctp.a
+  -DCMAKE_BUILD_TYPE=Release
 
 (cd $MAC_BUILD && make -j4 )
+
+# join all the deps of libdatachannel into a single large static archive
+libtool -static \
+  -o $MAC_BUILD/libdatachannel.a \
+     $MAC_BUILD/third_party/lib/*.a
+
 
 ########################################
 # 4. Build Linux x86-64 static slice in Docker
@@ -58,12 +55,13 @@ docker run --rm -t \
   $LINUX_IMAGE bash -c "
     apt-get update -qq &&
     DEBIAN_FRONTEND=noninteractive \
-    apt-get install -y --no-install-recommends build-essential cmake ninja-build git pkg-config libssl-dev &&
-    cmake -S $SRC_DIR -B $LINUX_BUILD \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DBUILD_SHARED_LIBS=OFF \
-      -DUSE_GNUTLS=0 -DUSE_NICE=0 &&
-    (cd $LINUX_BUILD && make -j4 )
+    apt-get install -y --no-install-recommends build-essential cmake git pkg-config python3 &&
+    cmake -B $LINUX_BUILD \
+      -DCMAKE_BUILD_TYPE=Release &&
+    (cd $LINUX_BUILD && make -j4 ) &&
+    ar -qc  $LINUX_BUILD/libdatachannel.a  \
+        $LINUX_BUILD/third_party/lib/*.a &&
+    ranlib $LINUX_BUILD/libdatachannel.a
   "
 
 ########################################
@@ -78,7 +76,7 @@ mkdir -p "$OUTPUT_DIR"
 cp datachannel.modulemap "$SRC_DIR/include/module.modulemap"
 
 xcodebuild -create-xcframework \
-  -library "$MAC_BUILD/libdatachannel_full.a" \
+  -library "$MAC_BUILD/libdatachannel.a" \
   -headers "$SRC_DIR/include" \
   -output "$OUTPUT_DIR/$XC_NAME"
 

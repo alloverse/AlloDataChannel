@@ -1,0 +1,34 @@
+cmake_minimum_required(VERSION 3.22)
+project(allo_superbuild LANGUAGES C CXX)
+
+include(ExternalProject)
+
+set(THIRDPARTY_PREFIX "${CMAKE_BINARY_DIR}/third_party")
+
+ExternalProject_Add(
+  mbedtls
+  SOURCE_DIR ${CMAKE_SOURCE_DIR}/mbedtls
+  UPDATE_COMMAND ""
+  PATCH_COMMAND python3 scripts/config.py set MBEDTLS_SSL_DTLS_SRTP
+  CMAKE_ARGS
+    -DENABLE_TESTING=OFF
+    -DENABLE_PROGRAMS=OFF
+    -DUSE_SHARED_MBEDTLS_LIBRARY=OFF
+    -DCMAKE_INSTALL_PREFIX=${THIRDPARTY_PREFIX}
+    -DCMAKE_BUILD_TYPE=Release
+)
+
+ExternalProject_Add(
+  libdatachannel
+  SOURCE_DIR ${CMAKE_SOURCE_DIR}/libdatachannel
+  DEPENDS mbedtls
+  CMAKE_ARGS
+    -DUSE_MBEDTLS=ON
+    -DUSE_GNUTLS=OFF
+    -DNO_TESTS=ON
+    -DNO_EXAMPLES=ON
+    -DBUILD_SHARED_LIBS=OFF
+    -DCMAKE_INSTALL_PREFIX=${THIRDPARTY_PREFIX}
+    -DCMAKE_PREFIX_PATH=${THIRDPARTY_PREFIX}
+    -DCMAKE_BUILD_TYPE=Release
+)

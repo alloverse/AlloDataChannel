@@ -28,7 +28,7 @@ distribution as is, you can skip submodule update after cloning.
 - [x] Mac support
     - [ ] ... statically link a TLS library so this library is actually distributable
 - [ ] Linux support
-- [ ] Functional
+- [x] Functional
 - [ ] Stable
 
 ... i e, very early and not ready for producion use.
