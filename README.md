@@ -26,12 +26,10 @@ distribution as is, you can skip submodule update after cloning.
 ## Status
 
 - [x] Mac support
-    - [ ] ... statically link a TLS library so this library is actually distributable
 - [ ] Linux support
 - [x] Functional
-- [ ] Stable
+- [ ] Well tested
 
-... i e, very early and not ready for producion use.
 
 ## Building the C/C++ parts
 

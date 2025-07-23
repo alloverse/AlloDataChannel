@@ -1,8 +1,6 @@
 // swift-tools-version:6.0
 import PackageDescription
 
-let opensslPrefix = "/opt/homebrew/opt/openssl@3"
-
 let package = Package(
     name: "AlloDataChannel",
     
@@ -24,23 +22,9 @@ let package = Package(
             name: "AlloDataChannel",
             dependencies: ["datachannel"],
             path: "Sources/AlloDataChannel",
-            
             linkerSettings: [
-                /* 1. library search path */
-                .unsafeFlags(["-L\(opensslPrefix)/lib"]),
-
-                /* 2. link the two dylibs */
-                .linkedLibrary("ssl",),
-                .linkedLibrary("crypto"),
-                .linkedLibrary("c++"),
-
-                /* 3. make dyld find them at run-time */
-                .unsafeFlags([
-                    "-Xlinker", "-rpath",
-                    "-Xlinker", "\(opensslPrefix)/lib"
-                ])
-            ]
-
+                .linkedLibrary("c++")
+            ],
         ),
         
         .testTarget(
