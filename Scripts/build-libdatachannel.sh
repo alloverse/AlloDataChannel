@@ -5,7 +5,7 @@ set -euo pipefail
 # Settings
 ########################################
 SRC_DIR=${SRC_DIR:-libdatachannel}
-MACOS_DEPLOY_TARGET=13.0
+export MACOSX_DEPLOYMENT_TARGET=13.0
 LINUX_IMAGE=${LINUX_IMAGE:-debian:bookworm}   # any recent distro works
 OUTPUT_DIR=Binaries
 XC_NAME=datachannel.xcframework
@@ -30,10 +30,7 @@ echo
 echo "🔨🖥️  Building Mac slice"
 MAC_BUILD=build/macos
 
-cmake -B "$MAC_BUILD" \
-  -DCMAKE_OSX_ARCHITECTURES=arm64 \
-  -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_DEPLOY_TARGET \
-  -DCMAKE_BUILD_TYPE=Release
+cmake -B "$MAC_BUILD" -DCMAKE_BUILD_TYPE=Release
 
 (cd $MAC_BUILD && make -j4 )
 
@@ -56,8 +53,7 @@ docker run --rm -t \
     apt-get update -qq &&
     DEBIAN_FRONTEND=noninteractive \
     apt-get install -y --no-install-recommends build-essential cmake git pkg-config python3 &&
-    cmake -B $LINUX_BUILD \
-      -DCMAKE_BUILD_TYPE=Release &&
+    cmake -B $LINUX_BUILD -DCMAKE_BUILD_TYPE=Release &&
     (cd $LINUX_BUILD && make -j4 ) &&
     ar -qc  $LINUX_BUILD/libdatachannel.a  \
         $LINUX_BUILD/third_party/lib/*.a &&
