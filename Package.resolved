@@ -1,22 +1,13 @@
 {
-  "originHash" : "328dbae07eb41ca886490633fb3bb0aa4873f4c3f9465d3688a1fd7f082a3efb",
+  "originHash" : "14fd02a9fd59da349dfd584868105b51417d3befaa74e4fca0a88a63d2ce272d",
   "pins" : [
-    {
-      "identity" : "cxshim",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/cx-org/CXShim",
-      "state" : {
-        "revision" : "82fecc246c7ca9f0ac1656b8199b7956e64d68f3",
-        "version" : "0.4.0"
-      }
-    },
     {
       "identity" : "opencombine",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/broadwaylamb/OpenCombine",
+      "location" : "https://github.com/OpenCombine/OpenCombine.git",
       "state" : {
-        "revision" : "28993ae57de5a4ea7e164787636cafad442d568c",
-        "version" : "0.12.0"
+        "revision" : "8576f0d579b27020beccbccc3ea6844f3ddfc2c2",
+        "version" : "0.14.0"
       }
     }
   ],

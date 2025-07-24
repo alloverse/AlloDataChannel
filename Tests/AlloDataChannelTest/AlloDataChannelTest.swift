@@ -6,7 +6,7 @@
 //
 
  import XCTest
- @preconcurrency import CXShim
+ @preconcurrency import OpenCombineShim
  @testable import AlloDataChannel
  
  enum TestError: Error {
