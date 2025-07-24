@@ -42,7 +42,9 @@ let package = Package(
             ],
             path: "Sources/AlloDataChannel",
             linkerSettings: [
-                .linkedLibrary("c++")
+                .linkedLibrary("c++",    .when(platforms: [.macOS])),
+                .linkedLibrary("stdc++", .when(platforms: [.linux])),
+                .linkedLibrary("datachannel", .when(platforms: [.linux])),
             ],
         ),
         

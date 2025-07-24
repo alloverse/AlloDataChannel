@@ -1,4 +1,5 @@
 module datachannel {
  header "rtc/rtc.h"
+ link "datachannel"
  export *
 }
