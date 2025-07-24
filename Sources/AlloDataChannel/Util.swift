@@ -5,7 +5,7 @@
 //  Created by Nevyn Bengtsson on 2025-07-17.
 //
 
-import Combine
+import CXShim
 
 /// Passes an arbitrary number of Swift `String`s to a C callback that
 /// expects the same number of `const char *` parameters.

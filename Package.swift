@@ -1,26 +1,45 @@
 // swift-tools-version:6.0
 import PackageDescription
 
+#if os(macOS)
+let datachannelTarget: Target = .binaryTarget(
+    name: "datachannel",
+    path: "Binaries/datachannel.xcframework"
+)
+#else
+let datachannelTarget: Target = .systemLibrary(
+    name: "datachannel",
+    path: "Binaries/datachannel.xcframework/macos-arm64/Headers",
+    providers: [
+        .aptItem(["libdatachannel-dev"])
+    ],
+)
+#endif
+
 let package = Package(
     name: "AlloDataChannel",
-    
     platforms: [.macOS(.v13)],   // Linux implicit
     
     products: [
         .library(name: "AlloDataChannel", targets: ["AlloDataChannel"])
     ],
     
+    dependencies: [
+        // "CXShim is a virtual Combine interface that allows you to switch berween system Combine and open source Combine." So we can use Combine on Linux.
+        .package(url: "https://github.com/cx-org/CXShim", .upToNextMinor(from: "0.4.0")),
+    ],
+    
     targets: [
         // Binary artefacts ---------------------------------------------------
-        .binaryTarget(
-            name: "datachannel",
-            path: "Binaries/datachannel.xcframework"
-        ),
-        
+        datachannelTarget,
+
         // Swift façade ------------------------------------
         .target(
             name: "AlloDataChannel",
-            dependencies: ["datachannel"],
+            dependencies: [
+                "datachannel",
+                "CXShim"
+            ],
             path: "Sources/AlloDataChannel",
             linkerSettings: [
                 .linkedLibrary("c++")

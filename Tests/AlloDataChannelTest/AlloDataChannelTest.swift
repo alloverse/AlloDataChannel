@@ -6,23 +6,59 @@
 //
 
  import XCTest
- import Combine
+ @preconcurrency import CXShim
  @testable import AlloDataChannel
  
  enum TestError: Error {
     case timedOut
     case wrongValue
 }
-extension Publisher
-where Output: Equatable
+
+private extension Publisher where Output: Sendable
 {
-    public func waitFor(predicate: @escaping (Output) -> Bool, timeout: TimeInterval = 1) async throws
+    // OpenCombine doesn't have Publisher.values, so make our own
+    func asyncStream() -> AsyncThrowingStream<Output, any Error>
     {
-        var iter = first(where: predicate).values.makeAsyncIterator()
-        // TODO: use timeout to throw if exceeded
-        let found = try await iter.next()
-        guard let found, predicate(found) else {
-            throw TestError.wrongValue
+        AsyncThrowingStream(Output.self, bufferingPolicy: .unbounded) { continuation in
+            let cancellable = sink(
+                receiveCompletion: { completion in
+                    switch completion {
+                    case .finished:
+                        continuation.finish()
+                    case .failure(let error):
+                        continuation.finish(throwing: error)
+                    }
+                },
+                receiveValue: { value in
+                    _ = continuation.yield(value)
+                }
+            )
+
+            continuation.onTermination = { _ in cancellable.cancel() }
+        }
+    }
+}
+
+extension Publisher
+where Output: Equatable & Sendable
+{
+    public func waitFor(predicate: @Sendable @escaping (Output) -> Bool, timeout: TimeInterval = 1) async throws
+    {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw TestError.timedOut
+            }
+            let asyncStream = self.asyncStream()
+            group.addTask {
+                for try await value in asyncStream where predicate(value) {
+                    return
+                }
+                throw TestError.wrongValue
+            }
+
+            try await group.next()
+            group.cancelAll()
         }
     }
     

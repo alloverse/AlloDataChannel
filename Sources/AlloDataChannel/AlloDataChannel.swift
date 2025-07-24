@@ -7,7 +7,7 @@
 
 import Foundation
 import datachannel
-import Combine
+import CXShim
 
 public class AlloWebRTCPeer: ObservableObject
 {
@@ -31,7 +31,7 @@ public class AlloWebRTCPeer: ObservableObject
         }
     }
     
-    public enum State: UInt32
+    public enum State: UInt32, Sendable
     {
         case new = 0
         case connecting = 1
@@ -52,7 +52,7 @@ public class AlloWebRTCPeer: ObservableObject
         case closed = 6
     }
 
-    public enum GatheringState: UInt32
+    public enum GatheringState: UInt32, Sendable
     {
         case new = 0
         case inProgress = 1

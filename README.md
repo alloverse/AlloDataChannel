@@ -30,6 +30,18 @@ distribution as is, you can skip submodule update after cloning.
 - [x] Functional
 - [ ] Well tested
 
+## Usage in Linux
+
+Swift on Linux does not support binary targets (xcframeworks are Mac only, and library binary assets are still in proposal).
+Thus, your best bet is to provide libdatachannel-dev through apt:
+
+```bash
+echo "deb http://www.deb-multimedia.org sid main" >> /etc/apt/sources.list
+apt-get install deb-multimedia-keyring
+apt-get update -oAcquire::AllowInsecureRepositories=true
+apt-get install libdatachannel-dev
+```
+
 
 ## Building the C/C++ parts
 
