@@ -7,7 +7,7 @@
 
 import Foundation
 import datachannel
-import CXShim
+import OpenCombineShim
 
 public class AlloWebRTCPeer: ObservableObject
 {

@@ -25,7 +25,7 @@ let package = Package(
     ],
     
     dependencies: [
-        // "CXShim is a virtual Combine interface that allows you to switch berween system Combine and open source Combine." So we can use Combine on Linux.
+        // So we can use Combine on Linux.
         .package(url: "https://github.com/OpenCombine/OpenCombine.git", from: "0.14.0")
     ],
     
@@ -38,6 +38,7 @@ let package = Package(
             name: "AlloDataChannel",
             dependencies: [
                 "datachannel",
+                // The shim uses Combine on Apple platforms and OpenCombine on linux
                 .product(name: "OpenCombineShim", package: "opencombine"),
             ],
             path: "Sources/AlloDataChannel",
