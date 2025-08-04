@@ -152,11 +152,20 @@ public class AlloWebRTCPeer: ObservableObject
     private let peerId: Int32
     
     // MARK: - API: Setup and teardown
-    public init()
+    public init(
+        autoNegotiate: Bool = false,
+        forceMediaTransport: Bool = true,
+        portRange: Range<Int>? = nil
+    )
     {
         var config = rtcConfiguration()
-        config.disableAutoNegotiation = true
-        config.forceMediaTransport = true
+        config.disableAutoNegotiation = !autoNegotiate
+        config.forceMediaTransport = forceMediaTransport
+        if let portRange
+        {
+            config.portRangeBegin = UInt16(portRange.lowerBound)
+            config.portRangeEnd = UInt16(portRange.upperBound)
+        }
         
         peerId = try! Error.orValue(rtcCreatePeerConnection(&config))
         
