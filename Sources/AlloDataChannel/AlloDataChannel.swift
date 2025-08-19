@@ -208,7 +208,7 @@ public class AlloWebRTCPeer: ObservableObject
         size = try Error.orValue(rtcCreateOffer(peerId, nil, size)) + 1024
         return try withUnsafeTemporaryAllocation(of: CChar.self, capacity: Int(size)) {
             let _ = try Error.orValue(rtcCreateOffer(peerId, $0.baseAddress, size))
-            return String(cString: $0.baseAddress!)
+            return sanitizeSdp(String(cString: $0.baseAddress!))
         }
     }
     
@@ -218,7 +218,7 @@ public class AlloWebRTCPeer: ObservableObject
         size = try Error.orValue(rtcCreateAnswer(peerId, nil, size)) + 1024
         return try withUnsafeTemporaryAllocation(of: CChar.self, capacity: Int(size)) {
             let _ = try Error.orValue(rtcCreateAnswer(peerId, $0.baseAddress, size))
-            return String(cString: $0.baseAddress!)
+            return sanitizeSdp(String(cString: $0.baseAddress!))
         }
     }
     
@@ -335,7 +335,7 @@ public class AlloWebRTCPeer: ObservableObject
         
         let _ = try Error.orValue(rtcSetLocalDescriptionCallback(peerId) { _, sdp, type, ptr  in
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
-            let sdp = String(cString: sdp!)
+            let sdp = this.sanitizeSdp(String(cString: sdp!))
             let type = Description.DescriptionType(rawValue: String(cString: type!))!
             this.localDescription = Description(type: type, sdp: sdp)
         })
@@ -344,12 +344,9 @@ public class AlloWebRTCPeer: ObservableObject
             let candidate = String(cString: candidate!)
             let mid = String(cString: mid!)
             
-            let fixedCandidate = if let override = this.ipOverride
-            {
-                candidate.replacingOccurrences(of: override.from, with: override.to)
-            } else { candidate }
+            let fixedCandidate = this.sanitizeSdp(candidate)
             
-            this.candidates.append(ICECandidate(candidate: candidate, mid: mid))
+            this.candidates.append(ICECandidate(candidate: fixedCandidate, mid: mid))
         })
         let _ = try Error.orValue(rtcSetStateChangeCallback(peerId) { _, state, ptr  in
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
@@ -367,5 +364,12 @@ public class AlloWebRTCPeer: ObservableObject
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
             this.signalingState = SignalingState(rawValue: state.rawValue)!
         })
+    }
+    
+    private func sanitizeSdp(_ sdp: String) -> String
+    {
+        guard let ipOverride else { return sdp }
+        
+        return sdp.replacingOccurrences(of: ipOverride.from, with: ipOverride.to)
     }
 }
