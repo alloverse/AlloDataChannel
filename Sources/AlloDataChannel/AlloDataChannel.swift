@@ -138,6 +138,17 @@ public class AlloWebRTCPeer: ObservableObject
         }
     }
     
+    public struct IPOverride
+    {
+        public let from: String
+        public let to: String
+        public init(from: String, to: String)
+        {
+            self.from = from
+            self.to = to
+        }
+    }
+    
     // MARK: - External state
     @Published public var state: State = .new
     @Published public var signalingState: SignalingState = .stable
@@ -150,12 +161,14 @@ public class AlloWebRTCPeer: ObservableObject
 
     // MARK: - Internal state
     private let peerId: Int32
+    private let ipOverride: IPOverride?
     
     // MARK: - API: Setup and teardown
     public init(
         autoNegotiate: Bool = false,
         forceMediaTransport: Bool = true,
-        portRange: Range<Int>? = nil
+        portRange: Range<Int>? = nil,
+        ipOverride: IPOverride? = nil
     )
     {
         var config = rtcConfiguration()
@@ -167,7 +180,8 @@ public class AlloWebRTCPeer: ObservableObject
             config.portRangeEnd = UInt16(portRange.upperBound)
         }
         
-        peerId = try! Error.orValue(rtcCreatePeerConnection(&config))
+        self.peerId = try! Error.orValue(rtcCreatePeerConnection(&config))
+        self.ipOverride = ipOverride
         
         try! setupCallbacks()
     }
@@ -329,6 +343,12 @@ public class AlloWebRTCPeer: ObservableObject
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
             let candidate = String(cString: candidate!)
             let mid = String(cString: mid!)
+            
+            let fixedCandidate = if let override = this.ipOverride
+            {
+                candidate.replacingOccurrences(of: override.from, with: override.to)
+            } else { candidate }
+            
             this.candidates.append(ICECandidate(candidate: candidate, mid: mid))
         })
         let _ = try Error.orValue(rtcSetStateChangeCallback(peerId) { _, state, ptr  in
