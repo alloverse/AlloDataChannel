@@ -172,6 +172,7 @@ public class AlloWebRTCPeer: ObservableObject
     )
     {
         var config = rtcConfiguration()
+        config.enableIceUdpMux = true
         config.disableAutoNegotiation = !autoNegotiate
         config.forceMediaTransport = forceMediaTransport
         if let portRange
