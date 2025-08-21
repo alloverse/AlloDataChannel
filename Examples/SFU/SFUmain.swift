@@ -15,12 +15,6 @@ class Receiver
     //var track: MediaTrack?
 }
 
-struct Message: Codable
-{
-    let type: String
-    let sdp: String
-}
-
 @main
 struct App
 {
@@ -41,15 +35,14 @@ struct App
         
         try await ingressPeer.$gatheringState.waitFor(value: .complete)
         let offer = ingressPeer.localDescription!
-        let message = Message(type: offer.type.rawValue, sdp: offer.sdp)
-        let messageString = String(data: try JSONEncoder().encode(message), encoding: .utf8)!
+        let messageString = String(data: try JSONEncoder().encode(offer), encoding: .utf8)!
         print("Please copy this offer and paste it to the SENDER:\n\(messageString)")
         
         print("\nPlease paste the answer from the SENDER:\n")
         let answer = try await stdin.next()!
         
-        let incomingMessage = try JSONDecoder().decode(Message.self, from: answer.data(using: .utf8)!)
-        try ingressPeer.set(remote: incomingMessage.sdp, type: AlloWebRTCPeer.Description.DescriptionType(rawValue: incomingMessage.sdp)!)
+        let incomingMessage = try JSONDecoder().decode(AlloWebRTCPeer.Description.self, from: answer.data(using: .utf8)!)
+        try ingressPeer.set(remote: incomingMessage)
         
         /// SETUP EGRESS PEERS
         var receiverIndex = 0
@@ -65,14 +58,13 @@ struct App
             
             try await receiver.peer.$gatheringState.waitFor(value: .complete)
             let offer = receiver.peer.localDescription!
-            let message = Message(type: offer.type.rawValue, sdp: offer.sdp)
-            let messageString = String(data: try JSONEncoder().encode(message), encoding: .utf8)!
+            let messageString = String(data: try JSONEncoder().encode(offer), encoding: .utf8)!
             print("Please copy this offer and paste it to the next RECEIVER:\n\(messageString)")
 
             print("\nPlease paste the answer from the RECEIVER:\n")
             let answer = try await stdin.next()!
-            let incomingMessage = try JSONDecoder().decode(Message.self, from: answer.data(using: .utf8)!)
-            try ingressPeer.set(remote: incomingMessage.sdp, type: AlloWebRTCPeer.Description.DescriptionType(rawValue: incomingMessage.sdp)!)
+            let incomingMessage = try JSONDecoder().decode(AlloWebRTCPeer.Description.self, from: answer.data(using: .utf8)!)
+            try ingressPeer.set(remote: incomingMessage)
             
             receiverIndex += 1
         }

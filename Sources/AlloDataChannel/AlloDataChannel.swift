@@ -112,9 +112,9 @@ public class AlloWebRTCPeer: ObservableObject
         case inactive = 4
     }
     
-    public struct Description
+    public struct Description: Codable
     {
-        public enum DescriptionType: String
+        public enum DescriptionType: String, Codable
         {
             case unspecified = "unspec"
             case offer = "offer"
@@ -230,6 +230,11 @@ public class AlloWebRTCPeer: ObservableObject
                 return rtcSetLocalDescription(peerId, $0.baseAddress)
             }
         )
+    }
+    
+    public func set(remote description: Description) throws
+    {
+        try set(remote: description.sdp, type: description.type)
     }
     
     public func set(remote description: String, type: Description.DescriptionType) throws
