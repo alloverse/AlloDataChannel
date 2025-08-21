@@ -118,6 +118,6 @@ where Output: Equatable & Sendable
     
     public func waitFor(value: Output, timeout: TimeInterval = 1) async throws
     {
-        try await waitFor(predicate: { Swift.print("\($0)"); return $0 == value}, timeout: timeout)
+        try await waitFor(predicate: { $0 == value}, timeout: timeout)
     }
 }
