@@ -5,7 +5,8 @@
 //  Created by Nevyn Bengtsson on 2025-07-17.
 //
 
-import OpenCombineShim
+import Foundation
+@preconcurrency import OpenCombineShim
 
 /// Passes an arbitrary number of Swift `String`s to a C callback that
 /// expects the same number of `const char *` parameters.
@@ -59,5 +60,64 @@ extension Published.Publisher
         self.debug(prefix, to: output)
             .sink { _ in }
             .store(in: &bag)
+    }
+}
+
+private extension Publisher where Output: Sendable
+{
+    // OpenCombine doesn't have Publisher.values, so make our own
+    func asyncStream() -> AsyncThrowingStream<Output, any Error>
+    {
+        AsyncThrowingStream(Output.self, bufferingPolicy: .unbounded) { continuation in
+            let cancellable = sink(
+                receiveCompletion: { completion in
+                    switch completion {
+                    case .finished:
+                        continuation.finish()
+                    case .failure(let error):
+                        continuation.finish(throwing: error)
+                    }
+                },
+                receiveValue: { value in
+                    _ = continuation.yield(value)
+                }
+            )
+
+            continuation.onTermination = { _ in cancellable.cancel() }
+        }
+    }
+}
+
+enum PublisherError: Error {
+    case timedOut
+    case wrongValue
+}
+
+extension Publisher
+where Output: Equatable & Sendable
+{
+    public func waitFor(predicate: @Sendable @escaping (Output) -> Bool, timeout: TimeInterval = 1) async throws
+    {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                throw PublisherError.timedOut
+            }
+            let asyncStream = self.asyncStream()
+            group.addTask {
+                for try await value in asyncStream where predicate(value) {
+                    return
+                }
+                throw PublisherError.wrongValue
+            }
+
+            try await group.next()
+            group.cancelAll()
+        }
+    }
+    
+    public func waitFor(value: Output, timeout: TimeInterval = 1) async throws
+    {
+        try await waitFor(predicate: { Swift.print("\($0)"); return $0 == value}, timeout: timeout)
     }
 }
