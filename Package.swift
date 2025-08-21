@@ -26,7 +26,7 @@ let package = Package(
     
     dependencies: [
         // So we can use Combine on Linux.
-        .package(url: "https://github.com/OpenCombine/OpenCombine.git", from: "0.14.0")
+        .package(url: "https://github.com/alloverse/OpenCombine.git", branch: "fix/vision-support"), // So we can use Combine on Linux.
     ],
     
     targets: [
