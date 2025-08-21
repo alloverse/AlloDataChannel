@@ -21,7 +21,8 @@ let package = Package(
     platforms: [.macOS(.v13)],   // Linux implicit
     
     products: [
-        .library(name: "AlloDataChannel", targets: ["AlloDataChannel"])
+        .library(name: "AlloDataChannel", targets: ["AlloDataChannel"]),
+        .executable(name: "SFUExample", targets: ["SFUExample"]),
     ],
     
     dependencies: [
@@ -49,6 +50,14 @@ let package = Package(
             ],
         ),
         
+        // Examples
+        .executableTarget(
+            name: "SFUExample",
+            dependencies: ["AlloDataChannel"],
+            path: "Examples/SFU",
+        ),
+        
+        // Tests
         .testTarget(
             name: "AlloDataChannelTest",
             dependencies: ["AlloDataChannel"],
