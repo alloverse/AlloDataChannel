@@ -101,6 +101,11 @@ public class AlloWebRTCPeer: ObservableObject
         case PCMA = 130
         case AAC = 131
         case G722 = 132
+        
+        var isVideo: Bool
+        {
+            return rawValue <= 128
+        }
     }
 
     public enum Direction: UInt32
@@ -158,8 +163,9 @@ public class AlloWebRTCPeer: ObservableObject
     @Published public var localDescription: Description? = nil
     @Published public var candidates: [ICECandidate] = []
     
-    @Published public var channels: [Channel] = []
+    @Published public var channels: [Channel] = [] // both datachannels and tracks
     @Published public var dataChannels: [DataChannel] = []
+    @Published public var tracks: [Track] = []
 
 
     // MARK: - Internal state
@@ -344,19 +350,133 @@ public class AlloWebRTCPeer: ObservableObject
             )
             return rtcCreateDataChannelEx(peerId, vals[0], &initData)
         })
-        let chan = DataChannel(peer: self, id: dataChannelId)
-        if !channels.contains(where: { $0.id == chan.id }) {
-            self.channels.append(chan)
-            self.dataChannels.append(chan)
+        if let existing = self.dataChannels.first(where: { $0.id == dataChannelId })
+        {
+            return existing
         }
+        let chan = DataChannel(peer: self, id: dataChannelId)
+        self.channels.append(chan)
+        self.dataChannels.append(chan)
         return chan
     }
     
-    // MARK: - Media Channels and tracks
+    // MARK: - Tracks
+    
+    public class Track: Channel
+    {
+        let ssrcs: [UInt32]
+        internal override init(peer: AlloWebRTCPeer? = nil, id: Int32)
+        {
+            let needed = Int(try! Error.orValue(rtcGetSsrcsForTrack(id, nil, 0)))
+            var cssrcs = [UInt32](repeating: 0, count: needed)
+            if needed > 0
+            {
+                _ = try! Error.orValue(cssrcs.withUnsafeMutableBufferPointer { buf in
+                    rtcGetSsrcsForTrack(id, buf.baseAddress, Int32(buf.count))
+                })
+            }
+            self.ssrcs = cssrcs
+            super.init(peer: peer, id: id)
+        }
+    }
+    
 
-    public func forwardStream(from otherPeer: AlloWebRTCPeer, streamId: String) -> Bool {
-        //return awebrtc_peer_forward_stream(otherPeer.peer, peer, streamId) == 1
-        return false
+    private struct PayloadTypeAllocator
+    {
+        internal struct Key: Hashable
+        {
+            let codec: Codec
+            let profile: String?
+            let clock: Int
+            let channels: Int
+        }
+        internal enum Error : Swift.Error { case exhausted }
+        private var next: Int32 = 96
+        private var map: [Key: Int32] = [:]
+
+        internal mutating func payloadType(for key: Key) throws -> Int32
+        {
+            if let pt = map[key] { return pt }
+            guard next < 127 else
+            {
+                throw Error.exhausted
+            }
+            next += 1
+            let pt = next
+            map[key] = pt
+            return pt
+        }
+    }
+    private var pat = PayloadTypeAllocator()
+    private struct SsrcAllocator
+    {
+        private var used = Set<UInt32>()
+        internal mutating func reserve(_ ssrc: UInt32) { used.insert(ssrc) } // call when parsing remote SDP too
+        internal mutating func next() -> UInt32
+        {
+            while true
+            {
+                let candidate = UInt32.random(in: 1...UInt32.max)
+                if !used.contains(candidate) { used.insert(candidate); return candidate }
+            }
+        }
+    }
+    private var sa = SsrcAllocator()
+    
+    /// Create an audio or video track to send and/or receive to the side of this peer connection
+    /// After creating a track, remember to lockLocalDescription to start negotiation
+    public func createTrack(
+        streamId: String, // Group of related medias have the same streamId; e g a webcam feed will have the same streamId for video and audio
+        trackId: String,  // ... but different trackIds
+        direction: Direction, // on this side, are we sending, receiving, both?
+        codec: Codec,
+        codecProfile: String? = nil, // applicable to some codecs, e g baseline for h264
+        clockRate: Int, // sample rate for audio, bitrate for video
+        channelCount: Int, // 0 for video, 1 for mono audio, 2 for stereo
+        mid: String? = nil, // override if you don't want it to be streamId
+        ssrc: UInt32? = nil // override if you don't want to auto-allocate an SSRC for this track
+    ) throws -> Track
+    {
+        guard !streamId.contains(" ") && !trackId.contains(" ") && (mid == nil || !mid!.contains(" ")) else
+        {
+            fatalError("Invalid stream, track ID or mid: must not contain spaces")
+        }
+        let mid = mid ?? "\(streamId)"
+        let pt = try pat.payloadType(for: PayloadTypeAllocator.Key(codec: codec, profile: codecProfile, clock: clockRate, channels: channelCount))
+        let actualSsrc: UInt32
+        if let ssrc
+        {
+            sa.reserve(ssrc)
+            actualSsrc = ssrc
+        }
+        else
+        {
+            actualSsrc = sa.next()
+        }
+        let name = "t\(actualSsrc)"
+        // TODO: Expose setBitrate in rtcTrackInit
+        let tid = try Error.orValue(withCStrings([streamId, trackId, mid, codecProfile ?? "", name]) { vals in
+            var initData = rtcTrackInit(
+                direction: rtcDirection(direction.rawValue),
+                codec: rtcCodec(codec.rawValue),
+                payloadType: pt,
+                ssrc: actualSsrc,
+                mid: vals[2],
+                name: vals[4],
+                msid: vals[0],
+                trackId: vals[1],
+                profile: codecProfile != nil ? vals[3] : nil
+            )
+            return rtcAddTrackEx(peerId, &initData)
+        })
+        if let existing = tracks.first(where: { $0.id == tid })
+        {
+            return existing
+        }
+        let track = Track(peer: self, id: tid)
+        self.channels.append(track)
+        self.tracks.append(track)
+        return track
     }
     
     // MARK: - Internals
@@ -401,6 +521,18 @@ public class AlloWebRTCPeer: ObservableObject
                 let chan = DataChannel(peer: this, id: dcid)
                 this.channels.append(chan)
                 this.dataChannels.append(chan)
+            }
+        })
+        let _ = try Error.orValue(rtcSetTrackCallback(peerId) { _, dcid, ptr  in
+            let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
+            if !this.channels.contains(where: { $0.id == dcid }) {
+                let track = Track(peer: this, id: dcid)
+                this.channels.append(track)
+                this.tracks.append(track)
+                for ssrc in track.ssrcs
+                {
+                    this.sa.reserve(ssrc)
+                }
             }
         })
     }

@@ -26,11 +26,12 @@ struct App
         let ingressPeer = AlloWebRTCPeer()
         var receivers: [Receiver] = []
         var cancellables: Set<AnyCancellable> = []
+        let trackSsrc: UInt32 = 42
         
         /// SETUP INGRESS PEER
         ingressPeer.$state.debugSink("Ingress state", in: &cancellables)
-        let dchan = try ingressPeer.createDataChannel(label: "test", streamId: 1, negotiated: true)
-        // TODO: Create media track for receiving
+        let ingressVideo = try ingressPeer.createTrack(streamId: "videostream", trackId: "videotrack", direction: .recvonly, codec: .H264, clockRate: 30000, channelCount: 0, ssrc: trackSsrc)
+        
         try ingressPeer.lockLocalDescription(type: .unspecified)
         
         try await ingressPeer.$gatheringState.waitFor(value: .complete)
@@ -52,8 +53,7 @@ struct App
             receivers.append(receiver)
             receiver.peer.$state.debugSink("Egress[\(receiverIndex)] state", in: &cancellables)
             
-            let dchan = try receiver.peer.createDataChannel(label: "test", streamId: 1, negotiated: true)
-            // TODO: Create media track for sending
+            let egressVideo = try receiver.peer.createTrack(streamId: "videostream", trackId: "videotrack", direction: .sendonly, codec: .H264, clockRate: 3000, channelCount: 0, ssrc: trackSsrc)
             try receiver.peer.lockLocalDescription(type: .unspecified)
             
             try await receiver.peer.$gatheringState.waitFor(value: .complete)
