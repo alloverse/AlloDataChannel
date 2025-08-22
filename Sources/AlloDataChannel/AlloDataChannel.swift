@@ -157,6 +157,9 @@ public class AlloWebRTCPeer: ObservableObject
     
     @Published public var localDescription: Description? = nil
     @Published public var candidates: [ICECandidate] = []
+    
+    @Published public var channels: [Channel] = []
+    @Published public var dataChannels: [DataChannel] = []
 
 
     // MARK: - Internal state
@@ -251,7 +254,7 @@ public class AlloWebRTCPeer: ObservableObject
         )
     }
     
-    // MARK: - Data channels
+    // MARK: - Channels
     
     public class Channel
     {
@@ -264,7 +267,8 @@ public class AlloWebRTCPeer: ObservableObject
             
             try! setupCallbacks()
         }
-        deinit {
+        deinit
+        {
             rtcDelete(id)
         }
         
@@ -309,6 +313,24 @@ public class AlloWebRTCPeer: ObservableObject
         }
     }
     
+    // MARK: - Data Channels
+    
+    public class DataChannel: Channel
+    {
+        let streamId: Int32
+        let label: String
+        internal override init(peer: AlloWebRTCPeer? = nil, id: Int32)
+        {
+            self.streamId = try! Error.orValue(rtcGetDataChannelStream(id))
+            let len = try! Error.orValue(rtcGetDataChannelLabel(id, nil, 0))
+            var buf = [CChar](repeating: 0, count: Int(len))
+            let _ = try! Error.orValue(rtcGetDataChannelLabel(id, &buf, len))
+            self.label = String(cString: &buf)
+            
+            super.init(peer: peer, id: id)
+        }
+    }
+    
     public func createDataChannel(label: String, reliable: Bool = true, streamId: UInt16? = nil, negotiated: Bool = false) throws -> Channel
     {
         let dataChannelId = try Error.orValue(withCStrings([label]) { vals in
@@ -322,12 +344,16 @@ public class AlloWebRTCPeer: ObservableObject
             )
             return rtcCreateDataChannelEx(peerId, vals[0], &initData)
         })
-        
-        return Channel(peer: self, id: dataChannelId)
+        let chan = DataChannel(peer: self, id: dataChannelId)
+        if !channels.contains(where: { $0.id == chan.id }) {
+            self.channels.append(chan)
+            self.dataChannels.append(chan)
+        }
+        return chan
     }
     
-    // MARK: - Media streams
-    
+    // MARK: - Media Channels and tracks
+
     public func forwardStream(from otherPeer: AlloWebRTCPeer, streamId: String) -> Bool {
         //return awebrtc_peer_forward_stream(otherPeer.peer, peer, streamId) == 1
         return false
@@ -368,6 +394,14 @@ public class AlloWebRTCPeer: ObservableObject
         let _ = try Error.orValue(rtcSetSignalingStateChangeCallback(peerId) { _, state, ptr  in
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
             this.signalingState = SignalingState(rawValue: state.rawValue)!
+        })
+        let _ = try Error.orValue(rtcSetDataChannelCallback(peerId) { _, dcid, ptr  in
+            let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
+            if !this.channels.contains(where: { $0.id == dcid }) {
+                let chan = DataChannel(peer: this, id: dcid)
+                this.channels.append(chan)
+                this.dataChannels.append(chan)
+            }
         })
     }
     
