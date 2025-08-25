@@ -1,97 +1,314 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>AlloDataChannel media SFU example</title>
+  <meta charset="UTF-8" />
+  <title>AlloDataChannel media SFU example – debug</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 0; }
+    .col { display:inline-block; width:48%; vertical-align:top; padding:12px; box-sizing:border-box; }
+    textarea { width:100%; min-height: 240px; }
+    #log { height: 30vh; overflow:auto; background:#0b1020; color:#e3ecff; padding:10px; white-space:pre-wrap; }
+    #videos video { max-width: 100%; background:#000; }
+    .section { border-top: 1px solid #ddd; margin-top: 8px; padding-top: 8px; }
+    button { padding:8px 12px; }
+    .row { display:flex; gap:12px; align-items:center; }
+    .small { font-size: 12px; opacity:0.8; }
+  </style>
 </head>
 <body>
 
-<div style="display:inline-block; width:40%;">
-    <h1>SENDER</h1>
-    <p id="send-help">Please enter the offer provided to you by the application: </p>
-    <textarea style="width:100%;" id="send-text" cols="40" rows="25"></textarea>
-    <button id="send-button">Submit</button>
-</div>
-<div style="display:inline-block; width:40%;">
-    <h1>RECEIVER</h1>
-    <p id="recv-help">Please enter the offer provided to you by the application: </p>
-    <textarea id="recv-text" style="width:100%;" cols="40" rows="25"></textarea>
-    <button id="recv-button">Submit</button>
+<div class="col">
+  <h1>SENDER</h1>
+  <div class="small">Paste the offer from the app, then click Submit. The answer will overwrite the textarea when ICE gathering completes.</div>
+  <textarea id="send-text"></textarea>
+  <div class="row">
+    <button id="send-button">Submit (Sender)</button>
+    <label class="small"><input type="checkbox" id="senderStats" checked> stats</label>
+  </div>
+  <div id="senderVideo" class="section"></div>
 </div>
 
-<div id="videos">
+<div class="col">
+  <h1>RECEIVER</h1>
+  <div class="small">Paste the offer from the app, then click Submit. The answer will overwrite the textarea when ICE gathering completes.</div>
+  <textarea id="recv-text"></textarea>
+  <div class="row">
+    <button id="recv-button">Submit (Receiver)</button>
+    <label class="small"><input type="checkbox" id="receiverStats" checked> stats</label>
+  </div>
+  <div id="videos" class="section"></div>
+</div>
+
+<div class="section">
+  <div class="row">
+    <strong>Log</strong>
+    <button id="clearLog">Clear</button>
+    <label class="small"><input type="checkbox" id="sdpDump" checked> dump SDPs</label>
+  </div>
+  <div id="log"></div>
 </div>
 
 <script>
-    document.getElementById('send-button').addEventListener('click',  async () => {
-        const pc = new RTCPeerConnection({
-            // Recommended for libdatachannel
-            bundlePolicy: 'max-bundle',
-        });
+  // ---------- logging helpers ----------
+  const logEl = document.getElementById('log');
+  function ts() {
+    const d = new Date();
+    return d.toISOString().split('T')[1].replace('Z','');
+  }
+  function log(...args) {
+    const line = args.map(a => typeof a === 'string' ? a : JSON.stringify(a, null, 2)).join(' ');
+    console.log('[DBG]', ...args);
+    logEl.textContent += `${ts()}  ${line}\n`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+  document.getElementById('clearLog').onclick = () => (logEl.textContent = '');
 
-        pc.onicegatheringstatechange = (state) => {
-            if (pc.iceGatheringState === 'complete') {
-                // We only want to provide an answer once all of our candidates have been added to the SDP.
-                const answer = pc.localDescription;
-                document.getElementById('send-text').value = JSON.stringify({
-                    type: answer.type,
-                    sdp: answer.sdp
-                });
-                document.getElementById('send-help').value = 'Please paste the answer in the application.';
-                alert('Please paste the answer in the application.');
-            }
+  function dumpSDP(label, sdp) {
+    if (!document.getElementById('sdpDump').checked) return;
+    log(`\n==== ${label} SDP ====`);
+    log(sdp);
+    log('==== /SDP ====\n');
+  }
+
+  function onceIceComplete(pc) {
+    return new Promise(resolve => {
+      if (pc.iceGatheringState === 'complete') return resolve();
+      pc.addEventListener('icegatheringstatechange', () => {
+        log('iceGatheringState:', pc.iceGatheringState);
+        if (pc.iceGatheringState === 'complete') resolve();
+      });
+      // also watch for the null candidate (end-of-candidates on older impls)
+      pc.addEventListener('icecandidate', e => {
+        if (!e.candidate) resolve();
+      });
+    });
+  }
+
+  function wirePC(name, pc) {
+    pc.addEventListener('signalingstatechange', () => log(name, 'signalingState', pc.signalingState));
+    pc.addEventListener('iceconnectionstatechange', () => log(name, 'iceConnectionState', pc.iceConnectionState));
+    pc.addEventListener('connectionstatechange', () => log(name, 'connectionState', pc.connectionState));
+    pc.addEventListener('icegatheringstatechange', () => log(name, 'iceGatheringState', pc.iceGatheringState));
+    pc.addEventListener('negotiationneeded', () => log(name, 'negotiationneeded'));
+    pc.addEventListener('icecandidateerror', (e) => log(name, 'icecandidateerror', {
+      hostCandidate: e.hostCandidate, url: e.url, errorText: e.errorText, errorCode: e.errorCode
+    }));
+  }
+
+  function preferH264(transceiver) {
+    try {
+      const caps = RTCRtpReceiver.getCapabilities('video');
+      if (!caps?.codecs) return;
+      // keep H264 first, filtered to typical constrained baseline first if present
+      const h264 = caps.codecs.filter(c => /H264/i.test(c.mimeType));
+      if (h264.length === 0) return;
+      transceiver.setCodecPreferences([...h264, ...caps.codecs.filter(c => !/H264/i.test(c.mimeType))]);
+      log('setCodecPreferences(H264) ok');
+    } catch (e) {
+      log('setCodecPreferences failed:', e.message || e);
+    }
+  }
+
+  function videoDebugEvents(video, tag) {
+    const evs = ['loadedmetadata','canplay','playing','pause','stalled','waiting','ended','error','resize','emptied','suspend','abort'];
+    evs.forEach(ev => video.addEventListener(ev, () => {
+      if (ev === 'error') {
+        const err = video.error;
+        log(`${tag} video error`, err ? {code: err.code, message: err.message} : {});
+      } else if (ev === 'resize') {
+        log(`${tag} video resize`, `${video.videoWidth}x${video.videoHeight}`);
+      } else {
+        log(`${tag} video event`, ev);
+      }
+    }));
+  }
+
+  function startStats(name, pc, enabledCheckbox) {
+    let stop = false;
+    const loop = async () => {
+      while (!stop) {
+        if (!enabledCheckbox.checked) { await new Promise(r=>setTimeout(r, 1000)); continue; }
+        try {
+          const stats = await pc.getStats();
+          // summarize inbound/outbound-rtp video + remote-inbound-rtp
+          let inbound = [], outbound = [], remoteInbound = [], codecs = [];
+          stats.forEach(s => {
+            if (s.type === 'inbound-rtp' && s.kind === 'video') inbound.push(s);
+            if (s.type === 'outbound-rtp' && s.kind === 'video') outbound.push(s);
+            if (s.type === 'remote-inbound-rtp' && s.kind === 'video') remoteInbound.push(s);
+            if (s.type === 'codec') codecs.push(s);
+          });
+          const brief = {
+            inbound: inbound.map(s => ({
+              ssrc: s.ssrc, framesDecoded: s.framesDecoded, keyFramesDecoded: s.keyFramesDecoded,
+              framesPerSecond: s.framesPerSecond, framesDropped: s.framesDropped,
+              jitter: s.jitter, packetsLost: s.packetsLost, pliCount: s.pliCount, nackCount: s.nackCount,
+              decoderImplementation: s.decoderImplementation
+            })),
+            outbound: outbound.map(s => ({
+              ssrc: s.ssrc, framesEncoded: s.framesEncoded, keyFramesEncoded: s.keyFramesEncoded,
+              framesPerSecond: s.framesPerSecond,
+              qualityLimitationReason: s.qualityLimitationReason, encoderImplementation: s.encoderImplementation,
+              retransmittedPacketsSent: s.retransmittedPacketsSent
+            })),
+            remoteInbound: remoteInbound.map(s => ({
+              ssrc: s.ssrc, roundTripTime: s.roundTripTime, totalRoundTripTime: s.totalRoundTripTime,
+              packetsLost: s.packetsLost, jitter: s.jitter
+            })),
+            codecs: codecs.map(c => ({ id: c.id, mimeType: c.mimeType, clockRate: c.clockRate, sdpFmtpLine: c.sdpFmtpLine }))
+          };
+          log(name, 'stats', brief);
+        } catch (e) {
+          log(name, 'getStats error', e.message || e);
         }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    };
+    loop();
+    return () => { stop = true; };
+  }
 
-        const offer = JSON.parse(document.getElementById('send-text').value);
-        await pc.setRemoteDescription(offer);
+  // ---------- SENDER ----------
+  document.getElementById('send-button').addEventListener('click',  async () => {
+    const name = 'SENDER';
+    const pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
+    wirePC(name, pc);
 
-        const media = await navigator.mediaDevices.getUserMedia({
-            video: {
-                width: 1280,
-                height: 720
-            }
-        });
-        media.getTracks().forEach(track => pc.addTrack(track, media));
+    const senderVideoDiv = document.getElementById('senderVideo');
+    senderVideoDiv.innerHTML = '';
+    const preview = document.createElement('video');
+    preview.autoplay = true; preview.muted = true; preview.playsInline = true; preview.controls = true;
+    preview.style.maxWidth = '100%';
+    senderVideoDiv.appendChild(preview);
+    videoDebugEvents(preview, 'sender-preview');
 
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+    let stopStats = startStats(name, pc, document.getElementById('senderStats'));
+
+    pc.addEventListener('track', ev => {
+      log(name, 'ontrack (loopback?)', ev.track.kind);
     });
 
-    document.getElementById('recv-button').addEventListener('click',  async () => {
-        const pc = new RTCPeerConnection({
-            // Recommended for libdatachannel
-            bundlePolicy: 'max-bundle',
-        });
+    try {
+      const remote = JSON.parse(document.getElementById('send-text').value);
+      dumpSDP('Sender remote (offer from app)', remote.sdp);
+      await pc.setRemoteDescription(remote);
+      log(name, 'setRemoteDescription OK');
+    } catch (e) {
+      log(name, 'setRemoteDescription FAILED', e.message || e);
+      return;
+    }
 
-        pc.onicegatheringstatechange = (state) => {
-            if (pc.iceGatheringState === 'complete') {
-                // We only want to provide an answer once all of our candidates have been added to the SDP.
-                const answer = pc.localDescription;
-                document.getElementById('recv-text').value = JSON.stringify({
-                    type: answer.type,
-                    sdp: answer.sdp
-                });
-                document.getElementById('recv-help').value = 'Please paste the answer in the application.';
-                alert('Please paste the answer in the application.');
-            }
-        }
+    // get camera
+    let media;
+    try {
+      media = await navigator.mediaDevices.getUserMedia({ video: { width:1280, height:720 }, audio:false });
+      preview.srcObject = media;
+    } catch (e) {
+      log(name, 'getUserMedia FAILED', e.message || e);
+      return;
+    }
 
-        let trackCount = 0;
-        pc.ontrack = (evt) => {
-            const id = trackCount++;
-            document.getElementById('videos').innerHTML += `<video width="100%" height="100%" id="video-${id}"></video>`;
+    // add track with H264 preference if possible
+    const track = media.getVideoTracks()[0];
+    const sender = pc.addTrack(track, media);
+    try {
+      const transceiver = pc.getTransceivers().find(t => t.sender === sender);
+      if (transceiver) preferH264(transceiver);
+    } catch {}
+    try { track.contentHint = 'motion'; } catch {}
 
-            const video = document.getElementById(`video-${id}`);
-			video.srcObject = evt.streams[0];
-            video.play();
-        };
-
-        const offer = JSON.parse(document.getElementById('recv-text').value);
-        await pc.setRemoteDescription(offer);
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+    // (optional) try for a keyframe when the far side connects
+    pc.addEventListener('connectionstatechange', () => {
+      if (pc.connectionState === 'connected' && typeof sender.requestKeyFrame === 'function') {
+        log(name, 'requestKeyFrame()');
+        sender.requestKeyFrame().catch(()=>{});
+      }
     });
+
+    try {
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      log(name, 'created & setLocalDescription');
+
+      await onceIceComplete(pc);
+      const final = pc.localDescription;
+      dumpSDP('Sender local (answer to app)', final.sdp);
+      document.getElementById('send-text').value = JSON.stringify({ type: final.type, sdp: final.sdp });
+      alert('SENDER: Copy the updated JSON answer and paste it into the app.');
+    } catch (e) {
+      log(name, 'answer/localDescription FAILED', e.message || e);
+    }
+  });
+
+  // ---------- RECEIVER ----------
+  document.getElementById('recv-button').addEventListener('click',  async () => {
+    const name = 'RECEIVER';
+    const pc = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
+    wirePC(name, pc);
+    let stopStats = startStats(name, pc, document.getElementById('receiverStats'));
+
+    pc.ontrack = (evt) => {
+      const stream = evt.streams[0] || new MediaStream([evt.track]);
+      const id = document.querySelectorAll('#videos video').length;
+      const wrap = document.createElement('div');
+      const label = document.createElement('div');
+      label.textContent = `Remote track #${id} kind=${evt.track.kind}`;
+      label.className = 'small';
+      const video = document.createElement('video');
+      video.autoplay = true; video.playsInline = true; video.controls = true;
+      video.muted = false; video.srcObject = stream;
+      videoDebugEvents(video, `receiver-${id}`);
+      wrap.appendChild(label);
+      wrap.appendChild(video);
+      document.getElementById('videos').appendChild(wrap);
+      log(name, 'ontrack stream id', stream.id, 'track id', evt.track.id);
+    };
+
+    try {
+      const remote = JSON.parse(document.getElementById('recv-text').value);
+      dumpSDP('Receiver remote (offer from app)', remote.sdp);
+      await pc.setRemoteDescription(remote);
+      log(name, 'setRemoteDescription OK');
+    } catch (e) {
+      log(name, 'setRemoteDescription FAILED', e.message || e);
+      return;
+    }
+
+    // Create & set answer, then wait for full ICE, then print JSON
+    try {
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      log(name, 'created & setLocalDescription');
+
+      await onceIceComplete(pc);
+      const final = pc.localDescription;
+      dumpSDP('Receiver local (answer to app)', final.sdp);
+      document.getElementById('recv-text').value = JSON.stringify({ type: final.type, sdp: final.sdp });
+      alert('RECEIVER: Copy the updated JSON answer and paste it into the app.');
+    } catch (e) {
+      log(name, 'answer/localDescription FAILED', e.message || e);
+    }
+
+    // Dump transceiver/codec info
+    try {
+      const info = pc.getTransceivers().map((t,i) => ({
+        idx: i,
+        direction: t.direction,
+        currentDirection: t.currentDirection,
+        codecs: (RTCRtpReceiver.getCapabilities('video')?.codecs||[]).map(c=>c.mimeType)
+      }));
+      log(name, 'transceivers', info);
+    } catch {}
+  });
+
+  // A bit of environment info
+  log('UserAgent:', navigator.userAgent);
+  (async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      log('MediaDevices:', devices.map(d => ({kind:d.kind, label:d.label, deviceId:d.deviceId.slice(0,6)+'…'})));
+    } catch {}
+  })();
 </script>
 
 </body>
