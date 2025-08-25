@@ -169,7 +169,7 @@ public class AlloWebRTCPeer: ObservableObject
 
 
     // MARK: - Internal state
-    private let peerId: Int32
+    public let peerId: Int32
     private let ipOverride: IPOverride?
     
     // MARK: - API: Setup and teardown
@@ -278,7 +278,7 @@ public class AlloWebRTCPeer: ObservableObject
             rtcDelete(id)
         }
         
-        @Published public var open: Bool = false
+        @Published public var isOpen: Bool = false
         @Published public var lastError: String? = nil
         @Published public var lastMessage: Data? = nil
         
@@ -294,17 +294,17 @@ public class AlloWebRTCPeer: ObservableObject
             rtcClose(id)
         }
         
-        private func setupCallbacks() throws
+        internal func setupCallbacks() throws
         {
             rtcSetUserPointer(id, Unmanaged.passUnretained(self).toOpaque())
 
             let _ = try Error.orValue(rtcSetOpenCallback(id) { _, ptr  in
                 let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
-                this.open = true
+                this.isOpen = true
             })
             let _ = try Error.orValue(rtcSetClosedCallback(id) { _, ptr  in
                 let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
-                this.open = false
+                this.isOpen = false
             })
             let _ = try Error.orValue(rtcSetErrorCallback(id) { _, cerror, ptr  in
                 let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
@@ -364,7 +364,19 @@ public class AlloWebRTCPeer: ObservableObject
     
     public class Track: Channel
     {
-        let ssrcs: [UInt32]
+        public let ssrcs: [UInt32]
+        public var onKeyFrameRequested: (() -> Void)?
+        {
+            didSet
+            {
+                _ = try! Error.orValue(rtcChainPliHandler(id, onKeyFrameRequested == nil ? nil :
+                { _, ptr in
+                    let this = Unmanaged<Track>.fromOpaque(ptr!).takeUnretainedValue()
+                    this.onKeyFrameRequested?()
+                }))
+            }
+        }
+
         internal override init(peer: AlloWebRTCPeer? = nil, id: Int32)
         {
             let needed = Int(try! Error.orValue(rtcGetSsrcsForTrack(id, nil, 0)))
@@ -377,6 +389,24 @@ public class AlloWebRTCPeer: ObservableObject
             }
             self.ssrcs = cssrcs
             super.init(peer: peer, id: id)
+        }
+        
+        // Installs a handler that manages bitrate negotiation, keyframe requests, etc.
+        public func installRtcpReceivingSession() throws
+        {
+            _ = try Error.orValue(rtcChainRtcpReceivingSession(id))
+        }
+        
+        // Only possible if a RtcpReceivingSession is installed
+        public func requestKeyFrame() throws
+        {
+            let _ = try Error.orValue(rtcRequestKeyframe(id))
+        }
+        
+        // Only possible if a RtcpReceivingSession is installed
+        public func requestBitRate(_ bps: UInt32) throws
+        {
+            let _ = try Error.orValue(rtcRequestBitrate(id, bps))
         }
     }
     
@@ -431,7 +461,7 @@ public class AlloWebRTCPeer: ObservableObject
         direction: Direction, // on this side, are we sending, receiving, both?
         codec: Codec,
         codecProfile: String? = nil, // applicable to some codecs, e g baseline for h264
-        clockRate: Int, // sample rate for audio, bitrate for video
+        sampleOrBitrate: Int, // sample rate for audio, bitrate for video
         channelCount: Int, // 0 for video, 1 for mono audio, 2 for stereo
         mid: String? = nil, // override if you don't want it to be streamId
         ssrc: UInt32? = nil // override if you don't want to auto-allocate an SSRC for this track
@@ -442,7 +472,7 @@ public class AlloWebRTCPeer: ObservableObject
             fatalError("Invalid stream, track ID or mid: must not contain spaces")
         }
         let mid = mid ?? "\(streamId)"
-        let pt = try pat.payloadType(for: PayloadTypeAllocator.Key(codec: codec, profile: codecProfile, clock: clockRate, channels: channelCount))
+        let pt = try pat.payloadType(for: PayloadTypeAllocator.Key(codec: codec, profile: codecProfile, clock: sampleOrBitrate, channels: channelCount))
         let actualSsrc: UInt32
         if let ssrc
         {
@@ -478,6 +508,7 @@ public class AlloWebRTCPeer: ObservableObject
         self.tracks.append(track)
         return track
     }
+    
     
     // MARK: - Internals
     private func setupCallbacks() throws

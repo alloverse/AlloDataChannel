@@ -12,7 +12,7 @@ import OpenCombineShim
 class Receiver
 {
     let peer = AlloWebRTCPeer()
-    //var track: MediaTrack?
+    var track: AlloWebRTCPeer.Track! = nil
 }
 
 @main
@@ -30,7 +30,23 @@ struct App
         
         /// SETUP INGRESS PEER
         ingressPeer.$state.debugSink("Ingress state", in: &cancellables)
-        let ingressVideo = try ingressPeer.createTrack(streamId: "videostream", trackId: "videotrack", direction: .recvonly, codec: .H264, clockRate: 30000, channelCount: 0, ssrc: trackSsrc)
+        let ingressVideo = try ingressPeer.createTrack(streamId: "videostream", trackId: "videotrack", direction: .recvonly, codec: .H264, sampleOrBitrate: 30000, channelCount: 0, ssrc: trackSsrc)
+        
+        try ingressVideo.installRtcpReceivingSession()
+        ingressVideo.$lastMessage.sink
+        { message in
+            for receiver in receivers
+            {
+                guard let data = message, receiver.track.isOpen else { return }
+                do {
+                    // TODO: reinterpret_cast<rtc::RtpHeader *>(message.data())->setSsrc(targetSSRC)
+                    try receiver.track?.send(data: data)
+                } catch let e
+                {
+                    print("Failed to forward packet to \(receiver.peer.peerId): \(e)")
+                }
+            }
+        }.store(in: &cancellables)
         
         try ingressPeer.lockLocalDescription(type: .unspecified)
         
@@ -51,9 +67,21 @@ struct App
         {
             let receiver = Receiver()
             receivers.append(receiver)
-            receiver.peer.$state.debugSink("Egress[\(receiverIndex)] state", in: &cancellables)
+            receiver.peer.$state.debug("Egress[\(receiverIndex)] state").sink()
+            {
+                if $0 == .connected && ingressVideo.isOpen
+                {
+                    try! ingressVideo.requestKeyFrame()
+                }
+            }.store(in: &cancellables)
             
-            let egressVideo = try receiver.peer.createTrack(streamId: "videostream", trackId: "videotrack", direction: .sendonly, codec: .H264, clockRate: 3000, channelCount: 0, ssrc: trackSsrc)
+            receiver.track = try receiver.peer.createTrack(streamId: "videostream", trackId: "videotrack", direction: .sendonly, codec: .H264, sampleOrBitrate: 30000, channelCount: 0, ssrc: trackSsrc)
+            try receiver.track.installRtcpReceivingSession()
+            receiver.track.onKeyFrameRequested = {
+                print("Receiver \(receiverIndex) requested keyframe, forwarding request to ingress")
+                guard ingressVideo.isOpen else { return }
+                try! ingressVideo.requestKeyFrame()
+            }
             try receiver.peer.lockLocalDescription(type: .unspecified)
             
             try await receiver.peer.$gatheringState.waitFor(value: .complete)
@@ -64,7 +92,9 @@ struct App
             print("\nPlease paste the answer from the RECEIVER:\n")
             let answer = try await stdin.next()!
             let incomingMessage = try JSONDecoder().decode(AlloWebRTCPeer.Description.self, from: answer.data(using: .utf8)!)
-            try ingressPeer.set(remote: incomingMessage)
+            try receiver.peer.set(remote: incomingMessage)
+            
+            // request keyframe?
             
             receiverIndex += 1
         }
@@ -73,6 +103,11 @@ struct App
     static func main() async throws
     {
         var app = App()
-        try await app.main()
+        do {
+            try await app.main()
+        } catch let e {
+            print("Fatal error in main: \(e)")
+            throw e
+        }
     }
 }
