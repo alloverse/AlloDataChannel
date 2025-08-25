@@ -33,11 +33,20 @@ let package = Package(
     targets: [
         // Binary artefacts ---------------------------------------------------
         datachannelTarget,
+        
+        // C++ code
+        .target(
+            name: "AlloDataChannelCpp",
+            dependencies: [
+                "datachannel"
+            ]
+        ),
 
         // Swift façade ------------------------------------
         .target(
             name: "AlloDataChannel",
             dependencies: [
+                "AlloDataChannelCpp",
                 "datachannel",
                 // The shim uses Combine on Apple platforms and OpenCombine on linux
                 .product(name: "OpenCombineShim", package: "opencombine"),
@@ -64,4 +73,6 @@ let package = Package(
             path: "Tests/AlloDataChannelTest",
         )
     ],
+    
+    cxxLanguageStandard: .cxx17
 )
