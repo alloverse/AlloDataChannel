@@ -52,6 +52,7 @@ struct App
                 }
             }
         }.store(in: &cancellables)
+        // TODO: request specific bitrate?
         
         try ingressPeer.lockLocalDescription(type: .unspecified)
         
@@ -80,6 +81,7 @@ struct App
                 }
             }.store(in: &cancellables)
             
+            // todo: mirror H.264 fmtp/profile from ingress to egress (so that receivers decode incoming video correctly)
             receiver.track = try receiver.peer.createTrack(streamId: "videostream", trackId: "videotrack", direction: .sendonly, codec: .H264, sampleOrBitrate: 30000, channelCount: 0, ssrc: trackSsrc)
             try receiver.track.installRtcpReceivingSession()
             receiver.track.onKeyFrameRequested = {
