@@ -76,7 +76,7 @@ struct App
             {
                 if $0 == .connected && ingressVideo.isOpen
                 {
-                    try! ingressVideo.requestKeyFrame()
+                    try? ingressVideo.requestKeyFrame()
                 }
             }.store(in: &cancellables)
             
@@ -85,7 +85,7 @@ struct App
             receiver.track.onKeyFrameRequested = {
                 print("Receiver \(receiverIndex) requested keyframe, forwarding request to ingress")
                 guard ingressVideo.isOpen else { return }
-                try! ingressVideo.requestKeyFrame()
+                try? ingressVideo.requestKeyFrame()
             }
             try receiver.peer.lockLocalDescription(type: .unspecified)
             
