@@ -15,13 +15,18 @@ class Receiver
     var track: AlloWebRTCPeer.Track! = nil
 }
 
+/// Sample project that demonstrates how to use AlloDataChannel to forward media between peers (aka working as an SFU).
+/// This is ported as straight as possible from libdatachannel's `examples/media-sfu/main.cpp`.
+
 @main
 struct App
 {
     mutating func main() async throws
     {
-        /// SETUP
+        /// Uncomment to aid with debugging:
         //AlloWebRTCPeer.enableLogging(at: .info)
+        
+        /// SETUP
         var stdin = FileHandle.standardInput.bytes.lines.makeAsyncIterator()
         let ingressPeer = AlloWebRTCPeer()
         var receivers: [Receiver] = []
@@ -37,9 +42,9 @@ struct App
         { message in
             for receiver in receivers
             {
-                guard let data = message, receiver.track.isOpen else { return }
+                guard var data = message, receiver.track.isOpen else { return }
                 do {
-                    // TODO: reinterpret_cast<rtc::RtpHeader *>(message.data())->setSsrc(targetSSRC)
+                    RtpHeaderRewriteSSRC(in: &data, to: trackSsrc)
                     try receiver.track?.send(data: data)
                 } catch let e
                 {
@@ -50,7 +55,7 @@ struct App
         
         try ingressPeer.lockLocalDescription(type: .unspecified)
         
-        try await ingressPeer.$gatheringState.waitFor(value: .complete)
+        try await ingressPeer.$gatheringState.waitFor(value: .complete, timeout: 100000)
         let offer = ingressPeer.localDescription!
         let messageString = String(data: try JSONEncoder().encode(offer), encoding: .utf8)!
         print("Please copy this offer and paste it to the SENDER:\n\(messageString)")
@@ -84,7 +89,7 @@ struct App
             }
             try receiver.peer.lockLocalDescription(type: .unspecified)
             
-            try await receiver.peer.$gatheringState.waitFor(value: .complete)
+            try await receiver.peer.$gatheringState.waitFor(value: .complete, timeout: 100000)
             let offer = receiver.peer.localDescription!
             let messageString = String(data: try JSONEncoder().encode(offer), encoding: .utf8)!
             print("Please copy this offer and paste it to the next RECEIVER:\n\(messageString)")
@@ -93,8 +98,6 @@ struct App
             let answer = try await stdin.next()!
             let incomingMessage = try JSONDecoder().decode(AlloWebRTCPeer.Description.self, from: answer.data(using: .utf8)!)
             try receiver.peer.set(remote: incomingMessage)
-            
-            // request keyframe?
             
             receiverIndex += 1
         }

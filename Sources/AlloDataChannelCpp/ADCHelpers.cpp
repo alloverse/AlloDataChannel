@@ -8,7 +8,7 @@
 #include "ADCHelpers.h"
 #include <rtc/rtc.hpp>
 
-void ADCRewriteSSRCInRtpHeader(void *message, uint32_t length, uint32_t targetSSRC)
+void RTPHeaderRewriteSSRC(void *message, uint32_t length, uint32_t targetSSRC)
 {
     auto rtp = reinterpret_cast<rtc::RtpHeader *>(message);
     rtp->setSsrc(targetSSRC);

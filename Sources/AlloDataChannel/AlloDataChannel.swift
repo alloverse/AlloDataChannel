@@ -8,6 +8,7 @@
 import Foundation
 import datachannel
 import OpenCombineShim
+import AlloDataChannelCpp
 
 public class AlloWebRTCPeer: ObservableObject
 {
@@ -573,5 +574,17 @@ public class AlloWebRTCPeer: ObservableObject
         guard let ipOverride else { return sdp }
         
         return sdp.replacingOccurrences(of: ipOverride.from, with: ipOverride.to)
+    }
+}
+
+
+public func RtpHeaderRewriteSSRC(in data: inout Data, to ssrc: UInt32)
+{
+    // RTP header is at least 12 bytes; bail fast if too small
+    guard data.count >= 12 else { return }
+    data.withUnsafeMutableBytes
+    { rawBuf in
+        guard let base = rawBuf.baseAddress else { return }
+        RTPHeaderRewriteSSRC(base, UInt32(rawBuf.count), ssrc)
     }
 }
