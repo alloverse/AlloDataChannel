@@ -370,6 +370,9 @@ public class AlloWebRTCPeer: ObservableObject
     
     public class Track: Channel
     {
+        public let streamId: String
+        public let trackId: String
+        
         public let ssrcs: [UInt32]
         public var onKeyFrameRequested: (() -> Void)?
         {
@@ -383,7 +386,7 @@ public class AlloWebRTCPeer: ObservableObject
             }
         }
 
-        internal override init(peer: AlloWebRTCPeer? = nil, id: Int32)
+        internal required init(peer: AlloWebRTCPeer? = nil, id: Int32, streamId: String, trackId: String)
         {
             let needed = Int(try! Error.orValue(rtcGetSsrcsForTrack(id, nil, 0)))
             var cssrcs = [UInt32](repeating: 0, count: needed)
@@ -394,6 +397,8 @@ public class AlloWebRTCPeer: ObservableObject
                 })
             }
             self.ssrcs = cssrcs
+            self.streamId = streamId
+            self.trackId = trackId
             super.init(peer: peer, id: id)
         }
         
@@ -413,6 +418,14 @@ public class AlloWebRTCPeer: ObservableObject
         public func requestBitRate(_ bps: UInt32) throws
         {
             let _ = try Error.orValue(rtcRequestBitrate(id, bps))
+        }
+        
+        internal static func GetMid(_ id: Int32) throws -> String
+        {
+            let len = try Error.orValue(rtcGetTrackMid(id, nil, 0))
+            var buf = [CChar](repeating: 0, count: Int(len))
+            let _ = try! Error.orValue(rtcGetTrackMid(id, &buf, len))
+            return String(cString: &buf)
         }
     }
     
@@ -509,7 +522,7 @@ public class AlloWebRTCPeer: ObservableObject
         {
             return existing
         }
-        let track = Track(peer: self, id: tid)
+        let track = Track(peer: self, id: tid, streamId: streamId, trackId: trackId)
         self.channels.append(track)
         self.tracks.append(track)
         return track
@@ -554,7 +567,8 @@ public class AlloWebRTCPeer: ObservableObject
         })
         let _ = try Error.orValue(rtcSetDataChannelCallback(peerId) { _, dcid, ptr  in
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
-            if !this.channels.contains(where: { $0.id == dcid }) {
+            if !this.channels.contains(where: { $0.id == dcid })
+            {
                 let chan = DataChannel(peer: this, id: dcid)
                 this.channels.append(chan)
                 this.dataChannels.append(chan)
@@ -562,8 +576,11 @@ public class AlloWebRTCPeer: ObservableObject
         })
         let _ = try Error.orValue(rtcSetTrackCallback(peerId) { _, dcid, ptr  in
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
-            if !this.channels.contains(where: { $0.id == dcid }) {
-                let track = Track(peer: this, id: dcid)
+            if !this.channels.contains(where: { $0.id == dcid })
+            {
+                let mid = try! Track.GetMid(dcid)
+                // TODO: Figure out track ID
+                let track = Track(peer: this, id: dcid, streamId: mid, trackId: "__")
                 this.channels.append(track)
                 this.tracks.append(track)
                 for ssrc in track.ssrcs
