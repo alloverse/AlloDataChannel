@@ -263,7 +263,7 @@ public class AlloWebRTCPeer: ObservableObject
     
     // MARK: - Channels
     
-    public class Channel
+    public class Channel: Equatable
     {
         weak var peer: AlloWebRTCPeer?
         let id: Int32
@@ -318,14 +318,19 @@ public class AlloWebRTCPeer: ObservableObject
                 this.lastMessage = data
             })
         }
+        
+        public static func == (lhs: AlloWebRTCPeer.Channel, rhs: AlloWebRTCPeer.Channel) -> Bool
+        {
+            lhs.id == rhs.id
+        }
     }
     
     // MARK: - Data Channels
     
     public class DataChannel: Channel
     {
-        let streamId: Int32
-        let label: String
+        public let streamId: Int32
+        public let label: String
         internal override init(peer: AlloWebRTCPeer? = nil, id: Int32)
         {
             self.streamId = try! Error.orValue(rtcGetDataChannelStream(id))
@@ -338,7 +343,7 @@ public class AlloWebRTCPeer: ObservableObject
         }
     }
     
-    public func createDataChannel(label: String, reliable: Bool = true, streamId: UInt16? = nil, negotiated: Bool = false) throws -> Channel
+    public func createDataChannel(label: String, reliable: Bool = true, streamId: UInt16? = nil, negotiated: Bool = false) throws -> DataChannel
     {
         let dataChannelId = try Error.orValue(withCStrings([label]) { vals in
             var initData = rtcDataChannelInit(
