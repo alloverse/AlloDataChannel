@@ -266,7 +266,7 @@ public class AlloWebRTCPeer: ObservableObject
     public class Channel: Equatable
     {
         weak var peer: AlloWebRTCPeer?
-        let id: Int32
+        public let id: Int32
         internal init(peer: AlloWebRTCPeer? = nil, id: Int32)
         {
             self.peer = peer
@@ -403,9 +403,12 @@ public class AlloWebRTCPeer: ObservableObject
         }
         
         // Installs a handler that manages bitrate negotiation, keyframe requests, etc.
+        private var hasInstalledRtcpReceivingSession = false
         public func installRtcpReceivingSession() throws
         {
+            guard hasInstalledRtcpReceivingSession == false else { return }
             _ = try Error.orValue(rtcChainRtcpReceivingSession(id))
+            hasInstalledRtcpReceivingSession = true
         }
         
         // Only possible if a RtcpReceivingSession is installed
