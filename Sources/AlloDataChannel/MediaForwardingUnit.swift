@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Combine
+import OpenCombineShim
 
 /// A `MediaForwardingUnit` forwards audio or video data from one track on one peer, to a corresponding freshly created track on given peer.
 // TODO: Reuse a single instance to forward to multiple peers?
