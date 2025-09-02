@@ -372,6 +372,7 @@ public class AlloWebRTCPeer: ObservableObject
     {
         public let streamId: String
         public let trackId: String
+        public let direction: Direction
         
         public let ssrcs: [UInt32]
         public var onKeyFrameRequested: (() -> Void)?
@@ -397,8 +398,13 @@ public class AlloWebRTCPeer: ObservableObject
                 })
             }
             self.ssrcs = cssrcs
+            
+            var direction = rtcDirection(rawValue: 0)
+            _ = try! Error.orValue(rtcGetTrackDirection(id, &direction))
+            
             self.streamId = streamId
             self.trackId = trackId
+            self.direction = Direction(rawValue: direction.rawValue)!
             super.init(peer: peer, id: id)
         }
         
