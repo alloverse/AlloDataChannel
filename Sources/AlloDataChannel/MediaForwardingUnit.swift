@@ -9,29 +9,29 @@ import Foundation
 import OpenCombineShim
 
 /// A `MediaForwardingUnit` forwards audio or video data from one track on one peer, to a corresponding freshly created track on given peer.
-// TODO: Reuse a single instance to forward to multiple peers?
 public class MediaForwardingUnit
 {
     public let ingressTrack: AlloWebRTCPeer.Track
     public let egressTrack: AlloWebRTCPeer.Track
     public let egressPeer: AlloWebRTCPeer
     private var ssrc: UInt32? = nil
+    private var pt: UInt8? = nil
     private var cancellables: Set<AnyCancellable> = []
     
     /// Creates a `MediaForwardingUnit` that forwards the given track to the given peer immediately. It will create a new track in the outgoing peer, and start sending messages on it as soon as that track is available.
     /// Please note: you must `lockLocalDescription` for the outgoing peer and perform renegotiation to open the track yourself after creating this instance.
-    public init(forwarding track: AlloWebRTCPeer.Track, to peer: AlloWebRTCPeer) throws
+    public init(forwarding track: AlloWebRTCPeer.Track, fromClientId: String, to peer: AlloWebRTCPeer) throws
     {
         ingressTrack = track
         try ingressTrack.installRtcpReceivingSession()
         egressPeer = peer
         egressTrack = try egressPeer.createTrack(
-            streamId: ingressTrack.streamId,
+            streamId: "\(fromClientId).\(ingressTrack.streamId)",
             trackId: ingressTrack.trackId,
             direction: .sendonly,
-            codec: .OPUS, //TODO: ingressTrack.codec,
-            sampleOrBitrate: 3000, // TODO: ingressTrack.sampleOrBitrate,
-            channelCount: 1, //TODO: ingressTrack.channelCount
+            codec: .OPUS, // TODO: ingressTrack.codec,
+            sampleOrBitrate: 48000, // TODO: ingressTrack.sampleOrBitrate,
+            channelCount: 2, // TODO: ingressTrack.channelCount
         )
         try egressTrack.installRtcpReceivingSession()
         egressTrack.onKeyFrameRequested = {
@@ -43,12 +43,17 @@ public class MediaForwardingUnit
         ingressTrack.$lastMessage.sink
         { message in
             guard var data = message, self.egressTrack.isOpen else { return }
-            if self.ssrc == nil
-            {
-                self.ssrc = self.ingressTrack.ssrcs.first!
-            }
             do {
+                if self.ssrc == nil || self.pt == nil
+                {
+                    self.ssrc = self.egressTrack.ssrcs.first!
+                    // TODO: ingressTrack.codecString instead of hardcoding "opus"
+                    self.pt = try self.egressTrack.payloadTypesForCodec("opus").first
+                    if self.pt == nil { throw AlloWebRTCPeer.Error.failure }
+                }
+            
                 RtpHeaderRewriteSSRC(in: &data, to: self.ssrc!)
+                RtpHeaderRewritePayloadType(in: &data, to: self.pt!)
                 try self.egressTrack.send(data: data)
             } catch let e
             {

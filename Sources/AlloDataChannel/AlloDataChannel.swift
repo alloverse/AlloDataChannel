@@ -408,6 +408,18 @@ public class AlloWebRTCPeer: ObservableObject
             super.init(peer: peer, id: id)
         }
         
+        public func payloadTypesForCodec(_ codecName: String) throws -> [UInt8]
+        {
+            return try withCStrings([codecName]) { vals in
+                let needed = Int(try Error.orValue(rtcGetTrackPayloadTypesForCodec(id, vals[0], nil, 0)))
+                var pts = [Int32](repeating: 0, count: needed)
+                _ = try Error.orValue(pts.withUnsafeMutableBufferPointer { buf in
+                    rtcGetTrackPayloadTypesForCodec(id, vals[0], buf.baseAddress, Int32(buf.count))
+                })
+                return pts.map { UInt8($0) }
+            }
+        }
+        
         // Installs a handler that manages bitrate negotiation, keyframe requests, etc.
         private var hasInstalledRtcpReceivingSession = false
         public func installRtcpReceivingSession() throws
@@ -589,7 +601,7 @@ public class AlloWebRTCPeer: ObservableObject
             {
                 let mid = try! Track.GetMid(dcid)
                 // TODO: Figure out track ID
-                let track = Track(peer: this, id: dcid, streamId: mid, trackId: "__")
+                let track = Track(peer: this, id: dcid, streamId: mid, trackId: "??")
                 this.channels.append(track)
                 this.tracks.append(track)
                 for ssrc in track.ssrcs
@@ -619,3 +631,14 @@ public func RtpHeaderRewriteSSRC(in data: inout Data, to ssrc: UInt32)
         RTPHeaderRewriteSSRC(base, UInt32(rawBuf.count), ssrc)
     }
 }
+public func RtpHeaderRewritePayloadType(in data: inout Data, to payloadType: UInt8)
+{
+    // RTP header is at least 12 bytes; bail fast if too small
+    guard data.count >= 12 else { return }
+    data.withUnsafeMutableBytes
+    { rawBuf in
+        guard let base = rawBuf.baseAddress else { return }
+        RTPHeaderRewritePayloadType(base, UInt32(rawBuf.count), payloadType)
+    }
+}
+
