@@ -448,6 +448,44 @@ public class AlloWebRTCPeer: ObservableObject
             let _ = try! Error.orValue(rtcGetTrackMid(id, &buf, len))
             return String(cString: &buf)
         }
+        
+        internal static func GetDescription(_ id: Int32) throws -> String
+        {
+            let len = try Error.orValue(rtcGetTrackDescription(id, nil, 0))
+            var buf = [CChar](repeating: 0, count: Int(len))
+            let _ = try! Error.orValue(rtcGetTrackDescription(id, &buf, len))
+            return String(cString: &buf)
+        }
+        
+        internal struct Msid
+        {
+            let streamId: String
+            let trackId: String
+        }
+        
+        internal static func GetMsid(_ id: Int32) throws -> Msid
+        {
+            // No accessor in libdatachannel's API to get stream & track ID afaik, so we need to parse sdp, both unified and plan b.
+            let desc = try GetDescription(id)
+            let sdp = desc.replacingOccurrences(of: "\r\n", with: "\n")
+            
+            if let line = sdp.split(separator: "\n").first(where: { $0.hasPrefix("a=msid:") }) {
+                let parts = line.dropFirst("a=msid:".count).split(separator: " ")
+                if parts.count >= 2 { return Msid(streamId: String(parts[0]), trackId: String(parts[1])) }
+                if parts.count == 1 { return Msid(streamId: String(parts[0]), trackId: String(parts[0])) }
+            }
+            if let line = sdp.split(separator: "\n").first(where: { $0.contains(" msid ") && $0.hasPrefix("a=ssrc:") }) {
+                // format: a=ssrc:<num> msid <streamId> <trackId?>
+                let tokens = line.split(separator: " ")
+                if let msidIdx = tokens.firstIndex(of: Substring("msid")), msidIdx + 2 < tokens.count {
+                    let maybeStream = tokens[msidIdx + 1]
+                    let maybeTrack = tokens[msidIdx + 2]
+                    return Msid(streamId: String(maybeStream), trackId: String(maybeTrack))
+                }
+            }
+
+            throw Error.failure
+        }
     }
     
 
@@ -599,9 +637,8 @@ public class AlloWebRTCPeer: ObservableObject
             let this = Unmanaged<AlloWebRTCPeer>.fromOpaque(ptr!).takeUnretainedValue()
             if !this.channels.contains(where: { $0.id == dcid })
             {
-                let mid = try! Track.GetMid(dcid)
-                // TODO: Figure out track ID
-                let track = Track(peer: this, id: dcid, streamId: mid, trackId: "??")
+                let msid = try! Track.GetMsid(dcid)
+                let track = Track(peer: this, id: dcid, streamId: msid.streamId, trackId: msid.trackId)
                 this.channels.append(track)
                 this.tracks.append(track)
                 for ssrc in track.ssrcs
