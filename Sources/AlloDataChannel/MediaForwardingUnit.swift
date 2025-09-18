@@ -31,7 +31,7 @@ public class MediaForwardingUnit
             direction: .sendonly,
             codec: .OPUS, // TODO: ingressTrack.codec,
             sampleOrBitrate: 48000, // TODO: ingressTrack.sampleOrBitrate,
-            channelCount: 2, // TODO: ingressTrack.channelCount
+            channelCount: 1, // TODO: ingressTrack.channelCount
         )
         try egressTrack.installRtcpReceivingSession()
         egressTrack.onKeyFrameRequested = {
