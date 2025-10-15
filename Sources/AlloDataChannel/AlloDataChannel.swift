@@ -205,9 +205,16 @@ public class AlloWebRTCPeer: ObservableObject
         rtcClosePeerConnection(peerId)
     }
     
-    static public func enableLogging(at level: LogLevel)
+    nonisolated(unsafe) static var loggingCallback: ((LogLevel, String) -> Void)? = nil
+    static public func enableLogging(at level: LogLevel, to callback: ((LogLevel, String) -> Void)? = nil)
     {
-        rtcInitLogger(rtcLogLevel(level.rawValue), nil)
+        loggingCallback = callback
+        rtcInitLogger(rtcLogLevel(level.rawValue), (callback != nil) ? { clevel, msg in
+            guard let msg else { return }
+            let level = LogLevel(rawValue: clevel.rawValue)!
+            let str = String(cString: msg)
+            AlloWebRTCPeer.loggingCallback?(level, str)
+        } : nil)
     }
     
     // MARK: - Signalling
