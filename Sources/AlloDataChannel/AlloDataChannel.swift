@@ -283,7 +283,8 @@ public class AlloWebRTCPeer: ObservableObject
         }
         deinit
         {
-            close()
+            // Add some check that we're really closed before deleting? Because if we're not, we might still
+            // be in peer's list of channels/tracks etc...
             rtcDelete(id)
         }
         
