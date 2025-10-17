@@ -74,5 +74,6 @@ public class MediaForwardingUnit
     {
         for c in cancellables { c.cancel() }
         egressTrack.onKeyFrameRequested = nil
+        egressTrack.close()
     }
 }

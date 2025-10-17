@@ -164,9 +164,9 @@ public class AlloWebRTCPeer: ObservableObject
     @Published public var localDescription: Description? = nil
     @Published public var candidates: [ICECandidate] = []
     
-    @Published public var channels: [Channel] = [] // both datachannels and tracks
-    @Published public var dataChannels: [DataChannel] = []
-    @Published public var tracks: [Track] = []
+    @Published public var channels: Set<Channel> = [] // both datachannels and tracks
+    @Published public var dataChannels: Set<DataChannel> = []
+    @Published public var tracks: Set<Track> = []
 
 
     // MARK: - Internal state
@@ -270,7 +270,7 @@ public class AlloWebRTCPeer: ObservableObject
     
     // MARK: - Channels
     
-    public class Channel: Equatable
+    public class Channel: Equatable, Hashable
     {
         weak var peer: AlloWebRTCPeer?
         public let id: Int32
@@ -283,6 +283,7 @@ public class AlloWebRTCPeer: ObservableObject
         }
         deinit
         {
+            close()
             rtcDelete(id)
         }
         
@@ -300,6 +301,7 @@ public class AlloWebRTCPeer: ObservableObject
         public func close()
         {
             rtcClose(id)
+            self.peer?.channels.remove(self)
         }
         
         internal func setupCallbacks() throws
@@ -330,6 +332,9 @@ public class AlloWebRTCPeer: ObservableObject
         {
             lhs.id == rhs.id
         }
+        public var hashValue: Int {
+            return Int(id)
+        }
     }
     
     // MARK: - Data Channels
@@ -347,6 +352,11 @@ public class AlloWebRTCPeer: ObservableObject
             self.label = String(cString: &buf)
             
             super.init(peer: peer, id: id)
+        }
+        override public func close()
+        {
+            super.close()
+            self.peer?.dataChannels.remove(self)
         }
     }
     
@@ -368,8 +378,8 @@ public class AlloWebRTCPeer: ObservableObject
             return existing
         }
         let chan = DataChannel(peer: self, id: dataChannelId)
-        self.channels.append(chan)
-        self.dataChannels.append(chan)
+        self.channels.insert(chan)
+        self.dataChannels.insert(chan)
         return chan
     }
     
@@ -413,6 +423,12 @@ public class AlloWebRTCPeer: ObservableObject
             self.trackId = trackId
             self.direction = Direction(rawValue: direction.rawValue)!
             super.init(peer: peer, id: id)
+        }
+        
+        override public func close()
+        {
+            super.close()
+            self.peer?.tracks.remove(self)
         }
         
         public func payloadTypesForCodec(_ codecName: String) throws -> [UInt8]
@@ -589,8 +605,8 @@ public class AlloWebRTCPeer: ObservableObject
             return existing
         }
         let track = Track(peer: self, id: tid, streamId: streamId, trackId: trackId)
-        self.channels.append(track)
-        self.tracks.append(track)
+        self.channels.insert(track)
+        self.tracks.insert(track)
         return track
     }
     
@@ -636,8 +652,8 @@ public class AlloWebRTCPeer: ObservableObject
             if !this.channels.contains(where: { $0.id == dcid })
             {
                 let chan = DataChannel(peer: this, id: dcid)
-                this.channels.append(chan)
-                this.dataChannels.append(chan)
+                this.channels.insert(chan)
+                this.dataChannels.insert(chan)
             }
         })
         let _ = try Error.orValue(rtcSetTrackCallback(peerId) { _, dcid, ptr  in
@@ -646,8 +662,8 @@ public class AlloWebRTCPeer: ObservableObject
             {
                 let msid = try! Track.GetMsid(dcid)
                 let track = Track(peer: this, id: dcid, streamId: msid.streamId, trackId: msid.trackId)
-                this.channels.append(track)
-                this.tracks.append(track)
+                this.channels.insert(track)
+                this.tracks.insert(track)
                 for ssrc in track.ssrcs
                 {
                     this.sa.reserve(ssrc)
