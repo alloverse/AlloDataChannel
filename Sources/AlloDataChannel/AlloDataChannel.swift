@@ -703,3 +703,7 @@ public func RtpHeaderRewritePayloadType(in data: inout Data, to payloadType: UIn
     }
 }
 
+public func LibdatachannelVersion() -> String
+{
+    return String(cString: GetLibdatachannelVersion()!)
+}

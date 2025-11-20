@@ -15,6 +15,8 @@ extern "C" {
 void RTPHeaderRewriteSSRC(void *message, uint32_t length, uint32_t targetSSRC);
 void RTPHeaderRewritePayloadType(void *message, uint32_t length, uint8_t targetPT);
 
+const char* GetLibdatachannelVersion(void);
+
 #if __cplusplus
 }
 #endif

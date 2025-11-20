@@ -19,3 +19,8 @@ void RTPHeaderRewritePayloadType(void *message, uint32_t length, uint8_t targetP
     auto rtp = reinterpret_cast<rtc::RtpHeader *>(message);
     rtp->setPayloadType(targetPT);
 }
+
+const char* GetLibdatachannelVersion(void)
+{
+    return RTC_VERSION;
+}
