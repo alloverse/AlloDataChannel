@@ -178,7 +178,8 @@ public class AlloWebRTCPeer: ObservableObject
         autoNegotiate: Bool = false,
         forceMediaTransport: Bool = true,
         portRange: Range<Int>? = nil,
-        ipOverride: IPOverride? = nil
+        ipOverride: IPOverride? = nil,
+        bindAddress: String? = nil
     )
     {
         var config = rtcConfiguration()
@@ -189,10 +190,16 @@ public class AlloWebRTCPeer: ObservableObject
             config.portRangeBegin = UInt16(portRange.lowerBound)
             config.portRangeEnd = UInt16(portRange.upperBound)
         }
-        
-        self.peerId = try! Error.orValue(rtcCreatePeerConnection(&config))
+
+        // `bindAddress` restricts candidate gathering to one interface. "127.0.0.1" keeps a
+        // connection entirely inside the machine, which is how the in-process tests avoid
+        // depending on the host's network (and on macOS local-network permission).
+        self.peerId = withOptionalCString(bindAddress) { bind in
+            config.bindAddress = bind
+            return try! Error.orValue(rtcCreatePeerConnection(&config))
+        }
         self.ipOverride = ipOverride
-        
+
         try! setupCallbacks()
     }
     
@@ -342,11 +349,15 @@ public class AlloWebRTCPeer: ObservableObject
     
     public class DataChannel: Channel
     {
-        public let streamId: Int32
+        /// The SCTP stream this channel rides on. Nil until the channel opens: a channel
+        /// negotiated in-band has no stream assigned until the association is up.
+        public var streamId: Int32? {
+            let stream = rtcGetDataChannelStream(id)
+            return stream >= 0 ? stream : nil
+        }
         public let label: String
         internal override init(peer: AlloWebRTCPeer? = nil, id: Int32)
         {
-            self.streamId = try! Error.orValue(rtcGetDataChannelStream(id))
             let len = try! Error.orValue(rtcGetDataChannelLabel(id, nil, 0))
             var buf = [CChar](repeating: 0, count: Int(len))
             let _ = try! Error.orValue(rtcGetDataChannelLabel(id, &buf, len))
@@ -359,14 +370,69 @@ public class AlloWebRTCPeer: ObservableObject
             super.close()
             self.peer?.dataChannels.remove(self)
         }
+
+        /// What this channel actually negotiated. On a channel opened by the remote peer,
+        /// this is what that peer asked for, carried over in the DCEP OPEN message.
+        public var reliability: Reliability {
+            var c = rtcReliability()
+            _ = try! Error.orValue(rtcGetDataChannelReliability(id, &c))
+            return Reliability(c: c)
+        }
     }
     
-    public func createDataChannel(label: String, reliable: Bool = true, streamId: UInt16? = nil, negotiated: Bool = false) throws -> DataChannel
+    /// Delivery guarantees for a data channel (RFC 8831 §6.1). `maxPacketLifeTime` and
+    /// `maxRetransmits` are mutually exclusive: at most one may be set, and setting either
+    /// makes the channel unreliable.
+    public struct Reliability: Equatable, Sendable
+    {
+        /// Deliver each message as it arrives instead of head-of-line blocking on the previous one.
+        public let unordered: Bool
+        /// Milliseconds during which (re)transmission may be attempted.
+        public let maxPacketLifeTime: UInt32?
+        /// Retransmission attempts. `0` means send once and never retransmit.
+        public let maxRetransmits: UInt32?
+
+        public init(unordered: Bool, maxPacketLifeTime: UInt32? = nil, maxRetransmits: UInt32? = nil)
+        {
+            precondition(maxPacketLifeTime == nil || maxRetransmits == nil, "maxPacketLifeTime and maxRetransmits are mutually exclusive")
+            self.unordered = unordered
+            self.maxPacketLifeTime = maxPacketLifeTime
+            self.maxRetransmits = maxRetransmits
+        }
+
+        /// Ordered and fully reliable, like TCP. The SCTP default.
+        public static let reliable = Self(unordered: false)
+        /// Unordered with no retransmissions, like UDP. Correct for real-time media,
+        /// where a late frame is worthless and a retransmission only adds latency.
+        public static let unreliable = Self(unordered: true, maxRetransmits: 0)
+        /// Unordered, retransmitting only while the message is younger than `ms`.
+        public static func timeLimited(ms: UInt32) -> Self { Self(unordered: true, maxPacketLifeTime: ms) }
+        /// Unordered, retransmitting at most `count` times.
+        public static func retransmitLimited(count: UInt32) -> Self { Self(unordered: true, maxRetransmits: count) }
+
+        fileprivate var c: rtcReliability {
+            rtcReliability(
+                unordered: unordered,
+                unreliable: maxPacketLifeTime != nil || maxRetransmits != nil,
+                maxPacketLifeTime: maxPacketLifeTime ?? 0,
+                maxRetransmits: maxRetransmits ?? 0
+            )
+        }
+
+        fileprivate init(c: rtcReliability)
+        {
+            // capi reports at most one of the two, and neither when reliable.
+            self.unordered = c.unordered
+            self.maxPacketLifeTime = (c.unreliable && c.maxPacketLifeTime > 0) ? c.maxPacketLifeTime : nil
+            self.maxRetransmits = (c.unreliable && c.maxPacketLifeTime == 0) ? c.maxRetransmits : nil
+        }
+    }
+
+    public func createDataChannel(label: String, reliability: Reliability = .reliable, streamId: UInt16? = nil, negotiated: Bool = false) throws -> DataChannel
     {
         let dataChannelId = try Error.orValue(withCStrings([label]) { vals in
             var initData = rtcDataChannelInit(
-                reliability:
-                    rtcReliability(unordered: !reliable, unreliable: !reliable, maxPacketLifeTime: 0, maxRetransmits: 0),
+                reliability: reliability.c,
                 protocol: nil,
                 negotiated: negotiated,
                 manualStream: streamId != nil,

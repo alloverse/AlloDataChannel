@@ -37,6 +37,14 @@ func withCStrings<R>(
     return try recurse(0, [])
 }
 
+/// `withCStrings` for a value that may be absent, where the C API wants NULL.
+@inlinable
+func withOptionalCString<R>(_ string: String?, _ body: (UnsafePointer<CChar>?) throws -> R) rethrows -> R
+{
+    guard let string else { return try body(nil) }
+    return try string.utf8CString.withUnsafeBufferPointer { try body($0.baseAddress!) }
+}
+
 extension Published.Publisher
 {
     @inlinable
@@ -63,59 +71,89 @@ extension Published.Publisher
     }
 }
 
-private extension Publisher where Output: Sendable
-{
-    // OpenCombine doesn't have Publisher.values, so make our own
-    func asyncStream() -> AsyncThrowingStream<Output, any Error>
-    {
-        AsyncThrowingStream(Output.self, bufferingPolicy: .unbounded) { continuation in
-            let cancellable = sink(
-                receiveCompletion: { completion in
-                    switch completion {
-                    case .finished:
-                        continuation.finish()
-                    case .failure(let error):
-                        continuation.finish(throwing: error)
-                    }
-                },
-                receiveValue: { value in
-                    _ = continuation.yield(value)
-                }
-            )
+enum PublisherError: Error {
+    case timedOut
+}
 
-            continuation.onTermination = { _ in cancellable.cancel() }
+/// One-shot latch: `signal()` may happen before, during or after `wait()`.
+private final class Latch: @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var signalled = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func signal()
+    {
+        lock.lock()
+        guard !signalled else { return lock.unlock() }
+        signalled = true
+        let waiting = waiters
+        waiters = []
+        lock.unlock()
+        // Off-thread: `signal()` is called from inside a Combine sink on libdatachannel's
+        // network thread. Resuming inline runs the awaiting task there, and its teardown
+        // re-enters the subscription that is delivering to us — a deadlock.
+        for waiter in waiting { Task.detached { waiter.resume() } }
+    }
+
+    func wait() async
+    {
+        // Cancellation must release the waiter: a task group awaits every child before it
+        // returns, so one continuation that ignores cancellation hangs the whole group -
+        // turning every timeout into a deadlock instead of an error.
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if signalled { lock.unlock(); continuation.resume() }
+                else { waiters.append(continuation); lock.unlock() }
+            }
+        } onCancel: {
+            signal()
         }
     }
 }
 
-enum PublisherError: Error {
-    case timedOut
-    case wrongValue
+/// Poll `condition` until it holds. Reading the property is always truthful, where
+/// subscribing to it races libdatachannel publishing from its own threads.
+public func waitUntil(timeout: TimeInterval = 10, interval: TimeInterval = 0.002, _ condition: @escaping () -> Bool) async throws
+{
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition()
+    {
+        guard Date() < deadline else { throw PublisherError.timedOut }
+        try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+    }
 }
 
 extension Publisher
 where Output: Equatable & Sendable
 {
+    /// Wait until this publisher emits a value satisfying `predicate`.
+    ///
+    /// Subscribes *before* suspending, so a `@Published` property that already holds a
+    /// matching value resolves immediately — libdatachannel publishes from its own threads,
+    /// and a wait that only listens for future changes loses that race.
     public func waitFor(predicate: @Sendable @escaping (Output) -> Bool, timeout: TimeInterval = 1) async throws
     {
+        let latch = Latch()
+        let cancellable = sink(
+            receiveCompletion: { _ in },
+            receiveValue: { if predicate($0) { latch.signal() } }
+        )
+        defer { cancellable.cancel() }
+
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 throw PublisherError.timedOut
             }
-            let asyncStream = self.asyncStream()
-            group.addTask {
-                for try await value in asyncStream where predicate(value) {
-                    return
-                }
-                throw PublisherError.wrongValue
-            }
+            group.addTask { await latch.wait() }
 
             try await group.next()
             group.cancelAll()
         }
     }
-    
+
     public func waitFor(value: Output, timeout: TimeInterval = 1) async throws
     {
         try await waitFor(predicate: { $0 == value}, timeout: timeout)
