@@ -199,11 +199,13 @@ public class AlloWebRTCPeer: ObservableObject
             return try! Error.orValue(rtcCreatePeerConnection(&config))
         }
         self.ipOverride = ipOverride
+        Teardown.remember(peer: peerId)
 
         try! setupCallbacks()
     }
     
     deinit {
+        Teardown.forget(peer: peerId)
         rtcDeletePeerConnection(peerId)
     }
         
@@ -285,6 +287,7 @@ public class AlloWebRTCPeer: ObservableObject
         {
             self.peer = peer
             self.id = id
+            Teardown.remember(channel: id)
             
             try! setupCallbacks()
         }
@@ -292,6 +295,7 @@ public class AlloWebRTCPeer: ObservableObject
         {
             // Add some check that we're really closed before deleting? Because if we're not, we might still
             // be in peer's list of channels/tracks etc...
+            Teardown.forget(channel: id)
             rtcDelete(id)
         }
         
