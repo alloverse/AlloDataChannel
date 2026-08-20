@@ -33,8 +33,8 @@
         
         try await peer1.$state.waitFor(value: .connected)
         try await peer2.$state.waitFor(value: .connected)
-        try await p1chan.$open.waitFor(value: true)
-        try await p2chan.$open.waitFor(value: true)
+        try await p1chan.$isOpen.waitFor(value: true)
+        try await p2chan.$isOpen.waitFor(value: true)
         
         let message = "Test".data(using: .utf8)!
         try p1chan.send(data: message)
