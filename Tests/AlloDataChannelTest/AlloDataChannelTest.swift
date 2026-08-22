@@ -84,7 +84,25 @@ class AlloDataChannelTests: XCTestCase {
         XCTAssertFalse(control.reliability.unordered)
         XCTAssertTrue(media.reliability.unordered)
     }
+
+    /// A forwarder that stops must take its channel with it on the far side, or the receiver
+    /// keeps a stream nothing will ever write to.
+    func testRemoteCloseRemovesTheChannel() async throws
+    {
+        let sender = makeLoopbackPeer()
+        let receiver = makeLoopbackPeer()
+        let out = try sender.createDataChannel(label: "voice/abc-1", reliability: .unreliable)
+
+        try await connect(sender, to: receiver)
+        try await waitUntil(timeout: TimeInterval(10)) { out.isOpen }
+        try await waitUntil { receiver.dataChannels.contains { $0.label == "voice/abc-1" } }
+
+        out.close()
+        try await waitUntil { receiver.dataChannels.isEmpty }
+        XCTAssertTrue(sender.dataChannels.isEmpty, "the closing side forgets it too")
+    }
 }
+
 
 // MARK: - Harness
 

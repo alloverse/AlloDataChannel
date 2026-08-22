@@ -213,6 +213,16 @@ public class AlloWebRTCPeer: ObservableObject
     {
         rtcClosePeerConnection(peerId)
     }
+
+    /// Drop a channel from the published sets. Reached from `Channel.close()` and from
+    /// libdatachannel's closed callback alike, so a channel the far side closed disappears
+    /// the same way as one closed here.
+    fileprivate func forget(_ channel: Channel)
+    {
+        channels.remove(channel)
+        if let dataChannel = channel as? DataChannel { dataChannels.remove(dataChannel) }
+        if let track = channel as? Track { tracks.remove(track) }
+    }
     
     nonisolated(unsafe) static var loggingCallback: ((LogLevel, String) -> Void)? = nil
     static public func enableLogging(at level: LogLevel, to callback: ((LogLevel, String) -> Void)? = nil)
@@ -313,7 +323,7 @@ public class AlloWebRTCPeer: ObservableObject
         public func close()
         {
             rtcClose(id)
-            self.peer?.channels.remove(self)
+            peer?.forget(self)
         }
         
         internal func setupCallbacks() throws
@@ -327,6 +337,7 @@ public class AlloWebRTCPeer: ObservableObject
             let _ = try Error.orValue(rtcSetClosedCallback(id) { _, ptr  in
                 let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
                 this.isOpen = false
+                this.peer?.forget(this)
             })
             let _ = try Error.orValue(rtcSetErrorCallback(id) { _, cerror, ptr  in
                 let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
@@ -368,11 +379,6 @@ public class AlloWebRTCPeer: ObservableObject
             self.label = String(cString: &buf)
             
             super.init(peer: peer, id: id)
-        }
-        override public func close()
-        {
-            super.close()
-            self.peer?.dataChannels.remove(self)
         }
 
         /// What this channel actually negotiated. On a channel opened by the remote peer,
@@ -496,11 +502,6 @@ public class AlloWebRTCPeer: ObservableObject
             super.init(peer: peer, id: id)
         }
         
-        override public func close()
-        {
-            super.close()
-            self.peer?.tracks.remove(self)
-        }
         
         public func payloadTypesForCodec(_ codecName: String) throws -> [UInt8]
         {
