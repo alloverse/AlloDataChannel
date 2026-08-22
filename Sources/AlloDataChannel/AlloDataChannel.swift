@@ -174,6 +174,8 @@ public class AlloWebRTCPeer: ObservableObject
     private let ipOverride: IPOverride?
     
     // MARK: - API: Setup and teardown
+    /// - Parameter bindAddress: gather candidates on this interface only; "127.0.0.1" keeps
+    ///   the connection inside the machine, and needs no macOS local-network permission.
     public init(
         autoNegotiate: Bool = false,
         forceMediaTransport: Bool = true,
@@ -191,9 +193,6 @@ public class AlloWebRTCPeer: ObservableObject
             config.portRangeEnd = UInt16(portRange.upperBound)
         }
 
-        // `bindAddress` restricts candidate gathering to one interface. "127.0.0.1" keeps a
-        // connection entirely inside the machine, which is how the in-process tests avoid
-        // depending on the host's network (and on macOS local-network permission).
         self.peerId = withOptionalCString(bindAddress) { bind in
             config.bindAddress = bind
             return try! Error.orValue(rtcCreatePeerConnection(&config))
@@ -214,9 +213,7 @@ public class AlloWebRTCPeer: ObservableObject
         rtcClosePeerConnection(peerId)
     }
 
-    /// Drop a channel from the published sets. Reached from `Channel.close()` and from
-    /// libdatachannel's closed callback alike, so a channel the far side closed disappears
-    /// the same way as one closed here.
+    /// Drop a channel from the published sets, whichever side closed it.
     fileprivate func forget(_ channel: Channel)
     {
         channels.remove(channel)

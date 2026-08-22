@@ -4,9 +4,8 @@ import XCTest
 
 private final class Box: @unchecked Sendable { @Published var value = 0 }
 
-/// `waitFor` used to turn a timeout into a process-wide hang: the task group cancelled a
-/// child suspended in a continuation that ignored cancellation. These pin the three
-/// behaviours a replacement must keep.
+/// `waitFor` must time out, honour cancellation, and return immediately when already
+/// satisfied - a continuation inside a task group can hang the whole process instead.
 final class WaitForTests: XCTestCase
 {
     func testTimeoutThrowsInsteadOfHanging() async throws
