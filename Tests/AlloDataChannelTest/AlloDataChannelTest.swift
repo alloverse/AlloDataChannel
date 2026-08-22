@@ -29,9 +29,8 @@ class AlloDataChannelTests: XCTestCase {
         try await waitUntil(timeout: TimeInterval(10)) { p2chan.lastMessage == message }
     }
 
-    /// The voice path needs channels opened in-band (only the sender creates them) that
-    /// drop rather than retransmit. Prove both: that the label and reliability survive the
-    /// trip through DCEP, and that messages flow on the resulting channel.
+    /// In-band channels that drop rather than retransmit: label, reliability and messages
+    /// must all survive DCEP.
     func testUnreliableInBandChannel() async throws
     {
         let sender = makeLoopbackPeer()
@@ -55,8 +54,7 @@ class AlloDataChannelTests: XCTestCase {
         let sent = (0..<200).map { seq in withUnsafeBytes(of: UInt32(seq).bigEndian) { Data($0) } }
         for message in sent { try out.send(data: message) }
 
-        // Loopback drops nothing, so every frame must land. Order is not guaranteed on an
-        // unordered channel, so compare as sets.
+        // Loopback drops nothing, but an unordered channel may reorder; compare as sets.
         try await waitUntil { received.count == sent.count }
         XCTAssertEqual(Set(received.messages), Set(sent))
     }
@@ -84,8 +82,7 @@ class AlloDataChannelTests: XCTestCase {
         XCTAssertFalse(media.reliability.ordered)
     }
 
-    /// A forwarder that stops must take its channel with it on the far side, or the receiver
-    /// keeps a stream nothing will ever write to.
+    /// A stopped forwarder must close its far-side channel.
     func testRemoteCloseRemovesTheChannel() async throws
     {
         let sender = makeLoopbackPeer()
@@ -107,8 +104,7 @@ class AlloDataChannelTests: XCTestCase {
 
 extension XCTestCase
 {
-    /// A peer that gathers candidates on loopback only, so a test never depends on the host
-    /// having a usable network interface (or on macOS granting local-network access).
+    /// Loopback-only peer, so tests need no usable network interface.
     func makeLoopbackPeer() -> AlloWebRTCPeer { AlloWebRTCPeer(bindAddress: "127.0.0.1") }
 
     /// Connect two peers over in-process loopback. Any negotiated channels must already exist
@@ -132,8 +128,7 @@ extension XCTestCase
 
 }
 
-/// Accumulates every message seen on the channels it observes. `lastMessage` only keeps one
-/// message, so a test that counts has to subscribe rather than sample.
+/// `lastMessage` keeps only one message, so counting requires a subscription.
 private final class Collector: @unchecked Sendable
 {
     // Recursive: `@Published` replays its current value synchronously on subscribe, so

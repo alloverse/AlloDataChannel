@@ -103,6 +103,7 @@ enum PublisherError: Error {
 
 /// Poll `condition` until it holds. Reading the property is always truthful, where
 /// subscribing to it races libdatachannel publishing from its own threads.
+/// Throws `PublisherError.timedOut` if it has not held within `timeout`.
 public func waitUntil(timeout: TimeInterval = 10, interval: TimeInterval = 0.002, _ condition: @escaping () -> Bool) async throws
 {
     let deadline = Date().addingTimeInterval(timeout)
