@@ -50,8 +50,7 @@ class AlloDataChannelTests: XCTestCase {
 
         XCTAssertEqual(out.reliability, .unreliable)
         XCTAssertEqual(incoming.reliability, .unreliable, "reliability must survive DCEP to the receiving side")
-        XCTAssertEqual(incoming.reliability.maxRetransmits, 0, "a retransmitted voice frame is a late voice frame")
-        XCTAssertNil(incoming.reliability.maxPacketLifeTime)
+        XCTAssertEqual(incoming.reliability.loss, .maxRetransmits(0), "a retransmitted voice frame is a late voice frame")
 
         let sent = (0..<200).map { seq in withUnsafeBytes(of: UInt32(seq).bigEndian) { Data($0) } }
         for message in sent { try out.send(data: message) }
@@ -81,8 +80,8 @@ class AlloDataChannelTests: XCTestCase {
         XCTAssertEqual(control.reliability, .reliable)
         XCTAssertEqual(controlIn.reliability, .reliable)
         XCTAssertEqual(media.reliability, .unreliable)
-        XCTAssertFalse(control.reliability.unordered)
-        XCTAssertTrue(media.reliability.unordered)
+        XCTAssertTrue(control.reliability.ordered)
+        XCTAssertFalse(media.reliability.ordered)
     }
 
     /// A forwarder that stops must take its channel with it on the far side, or the receiver

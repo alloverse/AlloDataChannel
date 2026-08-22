@@ -390,51 +390,57 @@ public class AlloWebRTCPeer: ObservableObject
         }
     }
     
-    /// Delivery guarantees for a data channel (RFC 8831 §6.1). `maxPacketLifeTime` and
-    /// `maxRetransmits` are mutually exclusive: at most one may be set, and setting either
-    /// makes the channel unreliable.
+    /// Delivery guarantees for a data channel (RFC 8831 §6.1). Loss policy and ordering are
+    /// independent: every `Loss` exists in an ordered and an unordered form on the wire.
     public struct Reliability: Equatable, Sendable
     {
-        /// Deliver each message as it arrives instead of head-of-line blocking on the previous one.
-        public let unordered: Bool
-        /// Milliseconds during which (re)transmission may be attempted.
-        public let maxPacketLifeTime: UInt32?
-        /// Retransmission attempts. `0` means send once and never retransmit.
-        public let maxRetransmits: UInt32?
-
-        public init(unordered: Bool, maxPacketLifeTime: UInt32? = nil, maxRetransmits: UInt32? = nil)
+        public enum Loss: Equatable, Sendable
         {
-            precondition(maxPacketLifeTime == nil || maxRetransmits == nil, "maxPacketLifeTime and maxRetransmits are mutually exclusive")
-            self.unordered = unordered
-            self.maxPacketLifeTime = maxPacketLifeTime
-            self.maxRetransmits = maxRetransmits
+            /// Retransmit until delivered, like TCP. The SCTP default.
+            case retransmitForever
+            /// Give up after this many retransmissions. `0` sends once and never retransmits.
+            case maxRetransmits(UInt32)
+            /// Give up once the message is older than this.
+            case maxPacketLifeTime(ms: UInt32)
         }
 
-        /// Ordered and fully reliable, like TCP. The SCTP default.
-        public static let reliable = Self(unordered: false)
+        public let loss: Loss
+        /// Deliver in send order, head-of-line blocking behind an outstanding message. With a
+        /// lossy `loss`, an abandoned message is skipped rather than waited for.
+        public let ordered: Bool
+
+        public init(loss: Loss, ordered: Bool)
+        {
+            self.loss = loss
+            self.ordered = ordered
+        }
+
+        /// Ordered and fully reliable, like TCP.
+        public static let reliable = Self(loss: .retransmitForever, ordered: true)
         /// Unordered with no retransmissions, like UDP. Correct for real-time media,
         /// where a late frame is worthless and a retransmission only adds latency.
-        public static let unreliable = Self(unordered: true, maxRetransmits: 0)
-        /// Unordered, retransmitting only while the message is younger than `ms`.
-        public static func timeLimited(ms: UInt32) -> Self { Self(unordered: true, maxPacketLifeTime: ms) }
-        /// Unordered, retransmitting at most `count` times.
-        public static func retransmitLimited(count: UInt32) -> Self { Self(unordered: true, maxRetransmits: count) }
+        public static let unreliable = Self(loss: .maxRetransmits(0), ordered: false)
 
-        fileprivate var c: rtcReliability {
-            rtcReliability(
-                unordered: unordered,
-                unreliable: maxPacketLifeTime != nil || maxRetransmits != nil,
-                maxPacketLifeTime: maxPacketLifeTime ?? 0,
-                maxRetransmits: maxRetransmits ?? 0
-            )
+        fileprivate var c: rtcReliability
+        {
+            switch loss
+            {
+            case .retransmitForever:
+                return rtcReliability(unordered: !ordered, unreliable: false, maxPacketLifeTime: 0, maxRetransmits: 0)
+            case .maxRetransmits(let n):
+                return rtcReliability(unordered: !ordered, unreliable: true, maxPacketLifeTime: 0, maxRetransmits: n)
+            case .maxPacketLifeTime(let ms):
+                return rtcReliability(unordered: !ordered, unreliable: true, maxPacketLifeTime: ms, maxRetransmits: 0)
+            }
         }
 
         fileprivate init(c: rtcReliability)
         {
-            // capi reports at most one of the two, and neither when reliable.
-            self.unordered = c.unordered
-            self.maxPacketLifeTime = (c.unreliable && c.maxPacketLifeTime > 0) ? c.maxPacketLifeTime : nil
-            self.maxRetransmits = (c.unreliable && c.maxPacketLifeTime == 0) ? c.maxRetransmits : nil
+            // capi reports at most one limit, and neither when reliable; a lifetime of 0 is "unset".
+            ordered = !c.unordered
+            loss = !c.unreliable ? .retransmitForever
+                 : c.maxPacketLifeTime > 0 ? .maxPacketLifeTime(ms: c.maxPacketLifeTime)
+                 : .maxRetransmits(c.maxRetransmits)
         }
     }
 
