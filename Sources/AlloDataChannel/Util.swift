@@ -37,6 +37,14 @@ func withCStrings<R>(
     return try recurse(0, [])
 }
 
+/// `withCStrings` for a value that may be absent, where the C API wants NULL.
+@inlinable
+func withOptionalCString<R>(_ string: String?, _ body: (UnsafePointer<CChar>?) throws -> R) rethrows -> R
+{
+    guard let string else { return try body(nil) }
+    return try string.utf8CString.withUnsafeBufferPointer { try body($0.baseAddress!) }
+}
+
 extension Published.Publisher
 {
     @inlinable
@@ -91,6 +99,18 @@ private extension Publisher where Output: Sendable
 enum PublisherError: Error {
     case timedOut
     case wrongValue
+}
+
+/// Poll `condition` until it holds. Reading the property is always truthful, where
+/// subscribing to it races libdatachannel publishing from its own threads.
+public func waitUntil(timeout: TimeInterval = 10, interval: TimeInterval = 0.002, _ condition: @escaping () -> Bool) async throws
+{
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition()
+    {
+        guard Date() < deadline else { throw PublisherError.timedOut }
+        try await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+    }
 }
 
 extension Publisher

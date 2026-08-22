@@ -178,7 +178,8 @@ public class AlloWebRTCPeer: ObservableObject
         autoNegotiate: Bool = false,
         forceMediaTransport: Bool = true,
         portRange: Range<Int>? = nil,
-        ipOverride: IPOverride? = nil
+        ipOverride: IPOverride? = nil,
+        bindAddress: String? = nil
     )
     {
         var config = rtcConfiguration()
@@ -189,11 +190,17 @@ public class AlloWebRTCPeer: ObservableObject
             config.portRangeBegin = UInt16(portRange.lowerBound)
             config.portRangeEnd = UInt16(portRange.upperBound)
         }
-        
-        self.peerId = try! Error.orValue(rtcCreatePeerConnection(&config))
+
+        // `bindAddress` restricts candidate gathering to one interface. "127.0.0.1" keeps a
+        // connection entirely inside the machine, which is how the in-process tests avoid
+        // depending on the host's network (and on macOS local-network permission).
+        self.peerId = withOptionalCString(bindAddress) { bind in
+            config.bindAddress = bind
+            return try! Error.orValue(rtcCreatePeerConnection(&config))
+        }
         self.ipOverride = ipOverride
         Teardown.remember(peer: peerId)
-        
+
         try! setupCallbacks()
     }
     
@@ -205,6 +212,16 @@ public class AlloWebRTCPeer: ObservableObject
     public func close()
     {
         rtcClosePeerConnection(peerId)
+    }
+
+    /// Drop a channel from the published sets. Reached from `Channel.close()` and from
+    /// libdatachannel's closed callback alike, so a channel the far side closed disappears
+    /// the same way as one closed here.
+    fileprivate func forget(_ channel: Channel)
+    {
+        channels.remove(channel)
+        if let dataChannel = channel as? DataChannel { dataChannels.remove(dataChannel) }
+        if let track = channel as? Track { tracks.remove(track) }
     }
     
     nonisolated(unsafe) static var loggingCallback: ((LogLevel, String) -> Void)? = nil
@@ -306,7 +323,7 @@ public class AlloWebRTCPeer: ObservableObject
         public func close()
         {
             rtcClose(id)
-            self.peer?.channels.remove(self)
+            peer?.forget(self)
         }
         
         internal func setupCallbacks() throws
@@ -320,6 +337,7 @@ public class AlloWebRTCPeer: ObservableObject
             let _ = try Error.orValue(rtcSetClosedCallback(id) { _, ptr  in
                 let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
                 this.isOpen = false
+                this.peer?.forget(this)
             })
             let _ = try Error.orValue(rtcSetErrorCallback(id) { _, cerror, ptr  in
                 let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
@@ -346,11 +364,15 @@ public class AlloWebRTCPeer: ObservableObject
     
     public class DataChannel: Channel
     {
-        public let streamId: Int32
+        /// The SCTP stream this channel rides on. Nil until the channel opens: a channel
+        /// negotiated in-band has no stream assigned until the association is up.
+        public var streamId: Int32? {
+            let stream = rtcGetDataChannelStream(id)
+            return stream >= 0 ? stream : nil
+        }
         public let label: String
         internal override init(peer: AlloWebRTCPeer? = nil, id: Int32)
         {
-            self.streamId = try! Error.orValue(rtcGetDataChannelStream(id))
             let len = try! Error.orValue(rtcGetDataChannelLabel(id, nil, 0))
             var buf = [CChar](repeating: 0, count: Int(len))
             let _ = try! Error.orValue(rtcGetDataChannelLabel(id, &buf, len))
@@ -358,19 +380,75 @@ public class AlloWebRTCPeer: ObservableObject
             
             super.init(peer: peer, id: id)
         }
-        override public func close()
-        {
-            super.close()
-            self.peer?.dataChannels.remove(self)
+
+        /// What this channel actually negotiated. On a channel opened by the remote peer,
+        /// this is what that peer asked for, carried over in the DCEP OPEN message.
+        public var reliability: Reliability {
+            var c = rtcReliability()
+            _ = try! Error.orValue(rtcGetDataChannelReliability(id, &c))
+            return Reliability(c: c)
         }
     }
     
-    public func createDataChannel(label: String, reliable: Bool = true, streamId: UInt16? = nil, negotiated: Bool = false) throws -> DataChannel
+    /// Delivery guarantees for a data channel (RFC 8831 §6.1). Loss policy and ordering are
+    /// independent: every `Loss` exists in an ordered and an unordered form on the wire.
+    public struct Reliability: Equatable, Sendable
+    {
+        public enum Loss: Equatable, Sendable
+        {
+            /// Retransmit until delivered, like TCP. The SCTP default.
+            case retransmitForever
+            /// Give up after this many retransmissions. `0` sends once and never retransmits.
+            case maxRetransmits(UInt32)
+            /// Give up once the message is older than this.
+            case maxPacketLifeTime(ms: UInt32)
+        }
+
+        public let loss: Loss
+        /// Deliver in send order, head-of-line blocking behind an outstanding message. With a
+        /// lossy `loss`, an abandoned message is skipped rather than waited for.
+        public let ordered: Bool
+
+        public init(loss: Loss, ordered: Bool)
+        {
+            self.loss = loss
+            self.ordered = ordered
+        }
+
+        /// Ordered and fully reliable, like TCP.
+        public static let reliable = Self(loss: .retransmitForever, ordered: true)
+        /// Unordered with no retransmissions, like UDP. Correct for real-time media,
+        /// where a late frame is worthless and a retransmission only adds latency.
+        public static let unreliable = Self(loss: .maxRetransmits(0), ordered: false)
+
+        fileprivate var c: rtcReliability
+        {
+            switch loss
+            {
+            case .retransmitForever:
+                return rtcReliability(unordered: !ordered, unreliable: false, maxPacketLifeTime: 0, maxRetransmits: 0)
+            case .maxRetransmits(let n):
+                return rtcReliability(unordered: !ordered, unreliable: true, maxPacketLifeTime: 0, maxRetransmits: n)
+            case .maxPacketLifeTime(let ms):
+                return rtcReliability(unordered: !ordered, unreliable: true, maxPacketLifeTime: ms, maxRetransmits: 0)
+            }
+        }
+
+        fileprivate init(c: rtcReliability)
+        {
+            // capi reports at most one limit, and neither when reliable; a lifetime of 0 is "unset".
+            ordered = !c.unordered
+            loss = !c.unreliable ? .retransmitForever
+                 : c.maxPacketLifeTime > 0 ? .maxPacketLifeTime(ms: c.maxPacketLifeTime)
+                 : .maxRetransmits(c.maxRetransmits)
+        }
+    }
+
+    public func createDataChannel(label: String, reliability: Reliability = .reliable, streamId: UInt16? = nil, negotiated: Bool = false) throws -> DataChannel
     {
         let dataChannelId = try Error.orValue(withCStrings([label]) { vals in
             var initData = rtcDataChannelInit(
-                reliability:
-                    rtcReliability(unordered: !reliable, unreliable: !reliable, maxPacketLifeTime: 0, maxRetransmits: 0),
+                reliability: reliability.c,
                 protocol: nil,
                 negotiated: negotiated,
                 manualStream: streamId != nil,
@@ -430,11 +508,6 @@ public class AlloWebRTCPeer: ObservableObject
             super.init(peer: peer, id: id)
         }
         
-        override public func close()
-        {
-            super.close()
-            self.peer?.tracks.remove(self)
-        }
         
         public func payloadTypesForCodec(_ codecName: String) throws -> [UInt8]
         {
