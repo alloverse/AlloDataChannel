@@ -103,9 +103,13 @@ public class AlloWebRTCPeer: ObservableObject
         case AAC = 131
         case G722 = 132
         
-        var isVideo: Bool
+        public var isVideo: Bool
         {
-            return rawValue <= 128
+            switch self
+            {
+            case .H264, .VP8, .VP9, .H265, .AV1: return true
+            case .OPUS, .PCMU, .PCMA, .AAC, .G722: return false
+            }
         }
     }
 
