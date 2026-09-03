@@ -17,6 +17,10 @@ which Google's framework is not capable of†. It is primarily used by allonet2 
 This package provides a minimal Swift wrapper around libdatachannel, specifically designed for server-side use. 
 It excludes audio/video capture capabilities to avoid platform-specific dependencies like microphone access.
 
+Sending is asynchronous, so a channel exposes its send queue for flow control: `bufferedAmount`, 
+`setBufferedAmountLowThreshold(_:)` and `onBufferedAmountLow`. Messages larger than libdatachannel's 
+256 KiB default need `AlloWebRTCPeer(maxMessageSize:)` on both peers.
+
 It contains pre-built binaries of libdatachannel so that you don't have to build them yourself. They are however 
 stored in Git LFS, so make sure to have that installed before cloning this repo.
 

@@ -330,6 +330,30 @@ public class AlloWebRTCPeer: ObservableObject
                 return rtcSendMessage(id, ptr.bindMemory(to: CChar.self).baseAddress!, Int32(data.count))
             })
         }
+
+        /// Bytes handed to `send` that the transport has not yet put on the wire. Rises when
+        /// the sender outruns the link, and is the signal to send less: `send` itself never
+        /// blocks and never reports congestion.
+        ///
+        /// Force-tries, like `DataChannel.reliability`: the C call only fails on an id that
+        /// is no longer a channel, which cannot happen while this object is alive.
+        public var bufferedAmount: Int
+        {
+            Int(try! Error.orValue(rtcGetBufferedAmount(id)))
+        }
+
+        /// Arm `onBufferedAmountLow` to fire when `bufferedAmount` drops to `bytes` or below.
+        /// The threshold is a level, not a one-shot: the callback fires on every crossing.
+        /// Force-tries, on the same grounds as `bufferedAmount`.
+        public func setBufferedAmountLowThreshold(_ bytes: Int)
+        {
+            _ = try! Error.orValue(rtcSetBufferedAmountLowThreshold(id, Int32(bytes)))
+        }
+
+        /// Called when the send queue has drained past the threshold set with
+        /// `setBufferedAmountLowThreshold`, on libdatachannel's own thread. Hop to your own
+        /// executor before touching anything the rest of your program owns.
+        public var onBufferedAmountLow: (() -> Void)? = nil
         
         public func close()
         {
@@ -359,6 +383,10 @@ public class AlloWebRTCPeer: ObservableObject
                 let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
                 let data = Data(bytes: cdata!, count: Int(size))
                 this.lastMessage = data
+            })
+            let _ = try Error.orValue(rtcSetBufferedAmountLowCallback(id) { _, ptr in
+                let this = Unmanaged<Channel>.fromOpaque(ptr!).takeUnretainedValue()
+                this.onBufferedAmountLow?()
             })
         }
         
