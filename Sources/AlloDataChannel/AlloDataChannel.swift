@@ -180,12 +180,18 @@ public class AlloWebRTCPeer: ObservableObject
     // MARK: - API: Setup and teardown
     /// - Parameter bindAddress: gather candidates on this interface only; "127.0.0.1" keeps
     ///   the connection inside the machine, and needs no macOS local-network permission.
+    /// - Parameter maxMessageSize: the largest single message, in bytes, that may be sent on
+    ///   any data channel of this peer connection. It is advertised in the SDP as
+    ///   `a=max-message-size` and the sending side obeys the *remote* peer's value, so both
+    ///   peers must be configured with it for a large message to get through. Nil keeps
+    ///   libdatachannel's default of 256 KiB.
     public init(
         autoNegotiate: Bool = false,
         forceMediaTransport: Bool = true,
         portRange: Range<Int>? = nil,
         ipOverride: IPOverride? = nil,
-        bindAddress: String? = nil
+        bindAddress: String? = nil,
+        maxMessageSize: Int? = nil
     )
     {
         var config = rtcConfiguration()
@@ -195,6 +201,10 @@ public class AlloWebRTCPeer: ObservableObject
         {
             config.portRangeBegin = UInt16(portRange.lowerBound)
             config.portRangeEnd = UInt16(portRange.upperBound)
+        }
+        if let maxMessageSize
+        {
+            config.maxMessageSize = Int32(maxMessageSize)
         }
 
         self.peerId = withOptionalCString(bindAddress) { bind in
